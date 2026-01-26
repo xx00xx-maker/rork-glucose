@@ -15,7 +15,17 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.rork.ketogardian"
+      "bundleIdentifier": "app.rork.ketogardian",
+      "infoPlist": {
+        "NSHealthShareUsageDescription": "レポート生成のために血糖値と歩数データを利用します。",
+        "NSHealthUpdateUsageDescription": "データ分析のためにHealthKitへアクセスします。",
+        "UIBackgroundModes": [
+          "fetch"
+        ]
+      },
+      "entitlements": {
+        "com.apple.developer.healthkit": true
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -35,7 +45,8 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true

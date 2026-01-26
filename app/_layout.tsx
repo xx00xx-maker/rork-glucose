@@ -16,34 +16,39 @@ function RootLayoutNav() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
-      <Stack.Screen 
-        name="challenge-detail" 
-        options={{ 
+      <Stack.Screen
+        name="challenge-detail"
+        options={{
           presentation: "modal",
           headerShown: false,
-        }} 
+        }}
       />
-      <Stack.Screen 
-        name="all-badges" 
-        options={{ 
+      <Stack.Screen
+        name="all-badges"
+        options={{
           presentation: "modal",
           headerShown: false,
-        }} 
+        }}
       />
-      <Stack.Screen 
-        name="settings" 
-        options={{ 
+      <Stack.Screen
+        name="settings"
+        options={{
           presentation: "modal",
           headerShown: false,
-        }} 
+        }}
       />
     </Stack>
   );
 }
 
+import { registerBackgroundTask } from "@/services/report/background";
+
+// ... existing imports
+
 export default function RootLayout() {
   useEffect(() => {
     SplashScreen.hideAsync();
+    registerBackgroundTask(); // Register background task on app launch
   }, []);
 
   return (

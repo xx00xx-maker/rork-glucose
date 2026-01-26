@@ -1,0 +1,66 @@
+{
+  "version": "5",
+  "redirects": {
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.92.0",
+    "https://esm.sh/iceberg-js@^0.8.1?target=denonext": "https://esm.sh/iceberg-js@0.8.1?target=denonext"
+  },
+  "remote": {
+    "https://esm.sh/@supabase/auth-js@2.92.0/denonext/auth-js.mjs": "77ea54eb72ec2d4a1f300f4f091f9e3883c74fc2bb7fa0efb0aac0c2d6f32d65",
+    "https://esm.sh/@supabase/functions-js@2.92.0/denonext/functions-js.mjs": "6739d94365734922867f9b15d03af7c20560f6c3ab870867ff2a5254dc5184a7",
+    "https://esm.sh/@supabase/postgrest-js@2.92.0/denonext/postgrest-js.mjs": "c7526650bc95610e52aa5dc4bfa9f2101cdbcea17bb94837362c08cc1cc26368",
+    "https://esm.sh/@supabase/realtime-js@2.92.0/denonext/realtime-js.mjs": "526d253d51239c6deb14895f0861c913f51ad43553ce8431a2bb0436244572f5",
+    "https://esm.sh/@supabase/storage-js@2.92.0/denonext/storage-js.mjs": "34372ffda79c914f4b0071c0c32a87d257ca9954999f18d5319257fe21d5d1be",
+    "https://esm.sh/@supabase/supabase-js@2.92.0": "a592f51988efd257abbfe69622ca115f485edfb1c6379fbbfc55ed8b7368d266",
+    "https://esm.sh/@supabase/supabase-js@2.92.0/denonext/supabase-js.mjs": "290f17168fba43055709a373844e07b7d777dd2333498660ecca7e14e2acc663",
+    "https://esm.sh/iceberg-js@0.8.1/denonext/iceberg-js.mjs": "d839d81a2e3966500ca2cdd0c1cb458e9608bacfc91f7bb67a69b2e878dcdb4f",
+    "https://esm.sh/iceberg-js@0.8.1?target=denonext": "58c849d7fe2bf4eca4a84eb501e83c161a7d8c34ca1bec15a962b3bec3062633",
+    "https://esm.sh/tslib@2.8.1/denonext/tslib.mjs": "c38da5dd6da6281964435002ce204cd586634fe3bdfb24a0ee116f48cf3292e9"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@babel/core@^7.25.2",
+        "npm:@expo/ngrok@^4.1.0",
+        "npm:@expo/vector-icons@^15.0.3",
+        "npm:@nkzw/create-context-hook@^1.1.0",
+        "npm:@react-native-async-storage/async-storage@2.2.0",
+        "npm:@react-native-community/slider@5.0.1",
+        "npm:@rork-ai/toolkit-sdk@~0.2.51",
+        "npm:@stardazed/streams-text-encoding@^1.0.2",
+        "npm:@tanstack/react-query@^5.83.0",
+        "npm:@types/react@~19.1.10",
+        "npm:@ungap/structured-clone@^1.3.0",
+        "npm:eslint-config-expo@10.0",
+        "npm:eslint@^9.31.0",
+        "npm:expo-blur@~15.0.8",
+        "npm:expo-constants@~18.0.11",
+        "npm:expo-font@~14.0.10",
+        "npm:expo-haptics@~15.0.8",
+        "npm:expo-image-picker@~17.0.9",
+        "npm:expo-image@~3.0.11",
+        "npm:expo-linear-gradient@~15.0.8",
+        "npm:expo-linking@~8.0.10",
+        "npm:expo-location@~19.0.8",
+        "npm:expo-router@~6.0.17",
+        "npm:expo-splash-screen@~31.0.12",
+        "npm:expo-status-bar@~3.0.9",
+        "npm:expo-symbols@~1.0.8",
+        "npm:expo-system-ui@~6.0.9",
+        "npm:expo-web-browser@~15.0.10",
+        "npm:expo@~54.0.27",
+        "npm:lucide-react-native@0.475",
+        "npm:react-dom@19.1.0",
+        "npm:react-native-gesture-handler@2.28",
+        "npm:react-native-safe-area-context@5.6",
+        "npm:react-native-screens@4.16",
+        "npm:react-native-svg@15.12.1",
+        "npm:react-native-web@0.21",
+        "npm:react-native-worklets@0.5.1",
+        "npm:react-native@0.81.5",
+        "npm:react@19.1.0",
+        "npm:typescript@~5.9.2",
+        "npm:zustand@^5.0.2"
+      ]
+    }
+  }
+}

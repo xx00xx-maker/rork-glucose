@@ -1,11 +1,11 @@
 
 import * as TaskManager from 'expo-task-manager';
 import * as BackgroundFetch from 'expo-background-fetch';
-import { fetchHealthKitData } from './healthkit';
-import { prepareDataForUpload } from './aggregator';
-import { generateReport } from './api';
+import { fetchHealthKitData } from '../healthkit';
+import { prepareDataForUpload } from '../aggregator';
+import { generateReport } from '../api';
 import * as Crypto from 'expo-crypto';
-import { saveReport } from './localdb'; // Assume this exists or needs implementation
+import { saveReport } from '../localdb'; // Assume this exists or needs implementation
 
 const BACKGROUND_REPORT_TASK = 'BACKGROUND_REPORT_GENERATION';
 

@@ -20,8 +20,10 @@
         "NSHealthShareUsageDescription": "レポート生成のために血糖値と歩数データを利用します。",
         "NSHealthUpdateUsageDescription": "データ分析のためにHealthKitへアクセスします。",
         "UIBackgroundModes": [
+          "fetch",
           "fetch"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
         "com.apple.developer.healthkit": true
@@ -46,10 +48,27 @@
       ],
       "expo-font",
       "expo-web-browser",
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "react-native-health",
+        {
+          "isClinicalDataEnabled": false,
+          "background": true,
+          "healthSharePermission": "レポート生成のために血糖値と歩数データを利用します。",
+          "healthUpdatePermission": "データ分析のためにHealthKitへアクセスします。"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": "https://rork.com/"
+      },
+      "eas": {
+        "projectId": "d77fe2f5-a2e5-44c6-827a-8db45a0ee058"
+      }
     }
   }
 }

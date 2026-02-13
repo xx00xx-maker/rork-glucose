@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Modal, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Slider from '@react-native-community/slider';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { 
-  ChevronLeft, 
-  Heart, 
-  Watch, 
-  Target, 
+import {
+  ChevronLeft,
+  Heart,
+  Target,
   Footprints,
   Bell,
   Crown,
@@ -15,17 +15,20 @@ import {
   Shield,
   Mail,
   Info,
-  ChevronRight
+  ChevronRight,
+  Trash2,
+  RotateCcw
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useApp } from '@/contexts/AppContext';
+import { getOfferings, purchasePackage, restorePurchases, checkSubscriptionStatus } from '@/app/utils/revenueCat';
 
 export default function SettingsScreen() {
   const { user, updateUser } = useApp();
   const [foodReminder, setFoodReminder] = useState(true);
   const [challengeNotif, setChallengeNotif] = useState(true);
   const [streakWarning, setStreakWarning] = useState(true);
-  
+
   const [showGlucoseModal, setShowGlucoseModal] = useState(false);
   const [showStepsModal, setShowStepsModal] = useState(false);
   const [tempGlucoseMin, setTempGlucoseMin] = useState(user.targetGlucoseRange.min);
@@ -44,11 +47,33 @@ export default function SettingsScreen() {
     setShowStepsModal(false);
   };
 
+  const handleUpgrade = async () => {
+    try {
+      const offerings = await getOfferings();
+      if (!offerings) {
+        Alert.alert('エラー', 'サブスクリプション情報を取得できません。\n\n.envにEXPO_PUBLIC_REVENUECAT_API_KEY_IOSが設定されているか確認してください。設定後はサーバーの再起動が必要です。');
+        return;
+      }
+      const pack = (offerings as any).monthly || (offerings as any).annual;
+      if (!pack) {
+        Alert.alert('エラー', '利用可能なプランがありません。RevenueCatダッシュボードでOfferingsを設定してください。');
+        return;
+      }
+      await purchasePackage(pack);
+      updateUser({ plan: 'premium' });
+      Alert.alert('アップグレード完了', 'プレミアムプランにアップグレードしました！');
+    } catch (e: any) {
+      if (!e.userCancelled) {
+        Alert.alert('エラー', '購入に失敗しました: ' + (e.message || ''));
+      }
+    }
+  };
+
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.backButton}
             onPress={() => router.back()}
           >
@@ -59,7 +84,7 @@ export default function SettingsScreen() {
         </View>
       </SafeAreaView>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -78,27 +103,6 @@ export default function SettingsScreen() {
                 </View>
               </View>
             </View>
-            <View style={styles.divider} />
-            <View style={styles.settingItem}>
-              <View style={styles.settingLeft}>
-                <View style={[styles.settingIcon, { backgroundColor: `${Colors.purple}20` }]}>
-                  <Watch size={18} color={Colors.purple} />
-                </View>
-                <View style={styles.settingInfo}>
-                  <Text style={styles.settingLabel}>Apple Watch連携</Text>
-                  {user.hasAppleWatch ? (
-                    <Text style={[styles.settingValue, { color: Colors.purple }]}>接続済み</Text>
-                  ) : (
-                    <Text style={styles.settingValueMuted}>未接続</Text>
-                  )}
-                </View>
-              </View>
-            </View>
-            {!user.hasAppleWatch && (
-              <Text style={styles.settingHint}>
-                Watchを連携すると心拍分析が可能になります
-              </Text>
-            )}
           </View>
         </View>
 
@@ -180,7 +184,7 @@ export default function SettingsScreen() {
                 <View style={[styles.settingIcon, { backgroundColor: `${Colors.orange}20` }]}>
                   <Bell size={18} color={Colors.orange} />
                 </View>
-                <Text style={styles.settingLabel}>ストリーク途切れ警告</Text>
+                <Text style={styles.settingLabel}>習慣キープの通知</Text>
               </View>
               <Switch
                 value={streakWarning}
@@ -211,7 +215,7 @@ export default function SettingsScreen() {
             {user.plan !== 'premium' && (
               <>
                 <View style={styles.divider} />
-                <TouchableOpacity style={styles.upgradeButton}>
+                <TouchableOpacity style={styles.upgradeButton} onPress={handleUpgrade}>
                   <Text style={styles.upgradeButtonText}>プレミアムにアップグレード</Text>
                 </TouchableOpacity>
               </>
@@ -264,6 +268,73 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>開発・テスト</Text>
+          <View style={styles.card}>
+            <TouchableOpacity
+              style={styles.settingItem}
+              onPress={() => {
+                Alert.alert(
+                  'オンボーディングリセット',
+                  'ペイウォール/オンボーディング画面を再度表示します。アプリが再起動されます。',
+                  [
+                    { text: 'キャンセル', style: 'cancel' },
+                    {
+                      text: 'リセット', style: 'destructive', onPress: async () => {
+                        await AsyncStorage.removeItem('hasCompletedOnboarding');
+                        await AsyncStorage.removeItem('userData');
+                        // Force reload through Expo Updates or manual restart
+                        Alert.alert('完了', 'アプリを完全に終了して再起動してください。');
+                      }
+                    },
+                  ]
+                );
+              }}
+            >
+              <View style={styles.settingLeft}>
+                <View style={[styles.settingIcon, { backgroundColor: `${Colors.orange}20` }]}>
+                  <RotateCcw size={18} color={Colors.orange} />
+                </View>
+                <View style={styles.settingInfo}>
+                  <Text style={styles.settingLabel}>ペイウォールテスト</Text>
+                  <Text style={styles.settingValue}>オンボーディングをリセット</Text>
+                </View>
+              </View>
+              <ChevronRight size={20} color={Colors.textMuted} />
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity
+              style={styles.settingItem}
+              onPress={() => {
+                Alert.alert(
+                  'キャッシュクリア',
+                  '全てのローカルデータを削除します。',
+                  [
+                    { text: 'キャンセル', style: 'cancel' },
+                    {
+                      text: '削除', style: 'destructive', onPress: async () => {
+                        await AsyncStorage.clear();
+                        Alert.alert('完了', 'キャッシュをクリアしました。アプリを完全に終了して再起動してください。');
+                      }
+                    },
+                  ]
+                );
+              }}
+            >
+              <View style={styles.settingLeft}>
+                <View style={[styles.settingIcon, { backgroundColor: `${Colors.red}20` }]}>
+                  <Trash2 size={18} color={Colors.red} />
+                </View>
+                <View style={styles.settingInfo}>
+                  <Text style={styles.settingLabel}>キャッシュクリア</Text>
+                  <Text style={styles.settingValue}>全ローカルデータを削除</Text>
+                </View>
+              </View>
+              <ChevronRight size={20} color={Colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <View style={styles.disclaimer}>
           <Text style={styles.disclaimerText}>
             本アプリは医療機器ではありません。{'\n'}
@@ -282,7 +353,7 @@ export default function SettingsScreen() {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>血糖値の目標範囲</Text>
             <Text style={styles.modalSubtitle}>目標範囲内時間（TIR）の計算に使用されます</Text>
-            
+
             <View style={styles.sliderContainer}>
               <Text style={styles.sliderLabel}>下限値</Text>
               <Text style={styles.sliderValue}>{tempGlucoseMin} mg/dL</Text>
@@ -298,7 +369,7 @@ export default function SettingsScreen() {
                 thumbTintColor={Colors.green}
               />
             </View>
-            
+
             <View style={styles.sliderContainer}>
               <Text style={styles.sliderLabel}>上限値</Text>
               <Text style={styles.sliderValue}>{tempGlucoseMax} mg/dL</Text>
@@ -316,14 +387,14 @@ export default function SettingsScreen() {
             </View>
 
             <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={styles.modalCancelButton} 
+              <TouchableOpacity
+                style={styles.modalCancelButton}
                 onPress={() => setShowGlucoseModal(false)}
               >
                 <Text style={styles.modalCancelText}>キャンセル</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.modalSaveButton} 
+              <TouchableOpacity
+                style={styles.modalSaveButton}
                 onPress={handleSaveGlucose}
               >
                 <Text style={styles.modalSaveText}>保存</Text>
@@ -343,16 +414,16 @@ export default function SettingsScreen() {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>1日の目標歩数</Text>
             <Text style={styles.modalSubtitle}>デイリーチャレンジの達成基準に使用されます</Text>
-            
+
             <View style={styles.stepsDisplayContainer}>
               <Text style={styles.stepsDisplayValue}>{tempSteps.toLocaleString()}</Text>
               <Text style={styles.stepsDisplayUnit}>歩</Text>
             </View>
-            
+
             <Slider
               style={styles.slider}
-              minimumValue={2000}
-              maximumValue={15000}
+              minimumValue={1000}
+              maximumValue={20000}
               step={500}
               value={tempSteps}
               onValueChange={setTempSteps}
@@ -360,7 +431,7 @@ export default function SettingsScreen() {
               maximumTrackTintColor={Colors.border}
               thumbTintColor={Colors.green}
             />
-            
+
             <View style={styles.stepsPresets}>
               {[4000, 6000, 8000, 10000].map((preset) => (
                 <TouchableOpacity
@@ -380,14 +451,14 @@ export default function SettingsScreen() {
             </View>
 
             <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={styles.modalCancelButton} 
+              <TouchableOpacity
+                style={styles.modalCancelButton}
                 onPress={() => setShowStepsModal(false)}
               >
                 <Text style={styles.modalCancelText}>キャンセル</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.modalSaveButton} 
+              <TouchableOpacity
+                style={styles.modalSaveButton}
                 onPress={handleSaveSteps}
               >
                 <Text style={styles.modalSaveText}>保存</Text>

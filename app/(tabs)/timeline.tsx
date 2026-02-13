@@ -17,13 +17,13 @@ export default function TimelineScreen() {
     const width = 120;
     const height = 50;
     const padding = 5;
-    
+
     const points = [
       { x: padding, y: height - padding - ((before - 70) / 130) * (height - 2 * padding) },
       { x: width / 2, y: height - padding - ((after - 70) / 130) * (height - 2 * padding) },
       { x: width - padding, y: height - padding - ((after - 20 - 70) / 130) * (height - 2 * padding) },
     ];
-    
+
     const pathD = `M ${points[0].x} ${points[0].y} Q ${(points[0].x + points[1].x) / 2} ${points[0].y}, ${points[1].x} ${points[1].y} Q ${(points[1].x + points[2].x) / 2} ${points[2].y}, ${points[2].x} ${points[2].y}`;
     const areaD = `${pathD} L ${width - padding} ${height - padding} L ${padding} ${height - padding} Z`;
 
@@ -75,58 +75,76 @@ export default function TimelineScreen() {
         </View>
       </SafeAreaView>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {timelineData.map((item) => (
-          <View key={item.id} style={styles.card}>
-            <Image source={{ uri: item.photo }} style={styles.cardImage} contentFit="cover" />
-            
-            <View style={styles.cardContent}>
-              <View style={styles.cardDateRow}>
-                <Calendar size={14} color={Colors.textSecondary} strokeWidth={1.5} />
-                <Text style={styles.cardDate}>{item.date} {item.time}</Text>
-              </View>
-              
-              <View style={styles.chartContainer}>
-                {renderMiniChart(item.glucoseBefore, item.glucoseAfter, item.stepsAfter)}
-              </View>
-              
-              <View style={styles.statsRow}>
-                <View style={styles.statItem}>
-                  <Text style={styles.statLabel}>食前</Text>
-                  <Text style={styles.statValue}>{item.glucoseBefore}</Text>
-                </View>
-                <View style={styles.statArrow}>
-                  <TrendingDown size={16} color={Colors.green} />
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={styles.statLabel}>食後</Text>
-                  <Text style={[styles.statValue, { color: Colors.orange }]}>{item.glucoseAfter}</Text>
-                </View>
-                <View style={styles.statDivider} />
-                <View style={styles.statItem}>
-                  <Footprints size={14} color={Colors.green} />
-                  <Text style={[styles.statValue, { color: Colors.green }]}>{item.stepsAfter.toLocaleString()}</Text>
-                </View>
-              </View>
+        {timelineData.map((item) => {
+          const mealLabels: Record<string, { label: string; color: string }> = {
+            breakfast: { label: '朝食', color: '#FF9500' },
+            lunch: { label: '昼食', color: '#007AFF' },
+            dinner: { label: '夕食', color: '#5856D6' },
+            snack: { label: '間食', color: '#34C759' },
+          };
+          const itemAny = item as any;
+          const mealInfo = itemAny.mealType ? mealLabels[itemAny.mealType] : null;
 
-              {item.spikeReduction > 0 && (
-                <View style={styles.insightBox}>
-                  <Lightbulb size={14} color={Colors.green} strokeWidth={2} />
-                  <Text style={styles.insightText}>{item.insight}</Text>
+          return (
+            <View key={item.id} style={styles.card}>
+              <Image source={{ uri: item.photo }} style={styles.cardImage} contentFit="cover" />
+
+              {/* Meal Type Badge */}
+              {mealInfo && (
+                <View style={[styles.mealBadge, { backgroundColor: mealInfo.color }]}>
+                  <Text style={styles.mealBadgeText}>{mealInfo.label}</Text>
                 </View>
               )}
 
-              <View style={styles.xpBadge}>
-                <Trophy size={14} color={Colors.gold} strokeWidth={2} />
-                <Text style={styles.xpText}>+{item.xpEarned} XP</Text>
+              <View style={styles.cardContent}>
+                <View style={styles.cardDateRow}>
+                  <Calendar size={14} color={Colors.textSecondary} strokeWidth={1.5} />
+                  <Text style={styles.cardDate}>{item.date} {item.time}</Text>
+                </View>
+
+                <View style={styles.chartContainer}>
+                  {renderMiniChart(item.glucoseBefore, item.glucoseAfter, item.stepsAfter)}
+                </View>
+
+                <View style={styles.statsRow}>
+                  <View style={styles.statItem}>
+                    <Text style={styles.statLabel}>食前</Text>
+                    <Text style={styles.statValue}>{item.glucoseBefore}</Text>
+                  </View>
+                  <View style={styles.statArrow}>
+                    <TrendingDown size={16} color={Colors.green} />
+                  </View>
+                  <View style={styles.statItem}>
+                    <Text style={styles.statLabel}>食後</Text>
+                    <Text style={[styles.statValue, { color: Colors.orange }]}>{item.glucoseAfter}</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <Footprints size={14} color={Colors.green} />
+                    <Text style={[styles.statValue, { color: Colors.green }]}>{item.stepsAfter.toLocaleString()}</Text>
+                  </View>
+                </View>
+
+                {item.spikeReduction > 0 && (
+                  <View style={styles.insightBox}>
+                    <Lightbulb size={14} color={Colors.green} strokeWidth={2} />
+                    <Text style={styles.insightText}>{item.insight}</Text>
+                  </View>
+                )}
+
+                <View style={styles.xpBadge}>
+                  <Trophy size={14} color={Colors.gold} strokeWidth={2} />
+                  <Text style={styles.xpText}>+{item.xpEarned} XP</Text>
+                </View>
               </View>
             </View>
-          </View>
-        ))}
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -278,5 +296,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600' as const,
     color: Colors.gold,
+  },
+  mealBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  mealBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600' as const,
   },
 });

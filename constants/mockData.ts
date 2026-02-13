@@ -1,6 +1,6 @@
 export const userData = {
   name: "ユーザー",
-  plan: "premium" as const,
+  plan: "free" as const,
   level: 12,
   title: "アクティブガーディアン",
   xp: 2880,
@@ -9,7 +9,7 @@ export const userData = {
   coins: 1250,
   targetGlucoseRange: { min: 70, max: 140 },
   targetSteps: 6000,
-  hasAppleWatch: true,
+
 };
 
 export const streaksData = {
@@ -27,13 +27,13 @@ export const dailyChallenges = [
 
 export const badges = [
   { id: "first_walk", name: "ファーストステップ", description: "初めて食後に500歩歩いた", iconType: "footprints" as const, unlocked: true, unlockedAt: "2025-01-10" },
-  { id: "streak_7", name: "7日ストリーク", description: "7日連続で目標達成", iconType: "flame" as const, unlocked: true, unlockedAt: "2025-01-20" },
+  { id: "streak_7", name: "7日連続達成", description: "7日連続で目標達成", iconType: "flame" as const, unlocked: true, unlockedAt: "2025-01-20" },
   { id: "stable_star", name: "安定の星", description: "TIR80%以上を達成", iconType: "star" as const, unlocked: true, unlockedAt: "2025-01-15" },
-  { id: "spike_hunter", name: "スパイクハンター", description: "食後スパイクを10回抑制", iconType: "target" as const, unlocked: true, unlockedAt: "2025-01-18" },
+  { id: "spike_hunter", name: "急上昇ハンター", description: "食後の急上昇を10回抑制", iconType: "target" as const, unlocked: true, unlockedAt: "2025-01-18" },
   { id: "recording_mania", name: "記録マニア", description: "100食分の写真を記録", iconType: "camera" as const, unlocked: true, unlockedAt: "2025-01-22" },
   { id: "early_walker", name: "早起きウォーカー", description: "朝7時前に1000歩を7日連続", iconType: "sunrise" as const, unlocked: true, unlockedAt: "2025-01-25" },
-  { id: "streak_30", name: "30日ストリーク", description: "30日連続で目標達成", iconType: "gem" as const, unlocked: false },
-  { id: "streak_100", name: "100日ストリーク", description: "100日連続で目標達成", iconType: "crown" as const, unlocked: false },
+  { id: "streak_30", name: "30日連続達成", description: "30日連続で目標達成", iconType: "gem" as const, unlocked: false },
+  { id: "streak_100", name: "100日連続達成", description: "100日連続で目標達成", iconType: "crown" as const, unlocked: false },
   { id: "ten_thousand", name: "1万歩チャレンジャー", description: "1日1万歩達成", iconType: "activity" as const, unlocked: false },
   { id: "iron_guardian", name: "鉄壁のガーディアン", description: "1週間低血糖・高血糖ゼロ", iconType: "shield" as const, unlocked: false },
   { id: "heart_master", name: "心拍マスター", description: "運動で心拍と血糖の相関を発見", iconType: "heart" as const, unlocked: false },
@@ -94,7 +94,7 @@ export const timelineData = [
     stepsAfter: 1200,
     spikeReduction: 30,
     xpEarned: 30,
-    insight: "食後1,200歩で、スパイク-30mg/dL",
+    insight: "食後1,200歩で、急上昇を-30mg/dL抑制",
   },
   {
     id: "2",
@@ -130,7 +130,7 @@ export const timelineData = [
     stepsAfter: 1500,
     spikeReduction: 35,
     xpEarned: 35,
-    insight: "素晴らしい！スパイクを大幅抑制",
+    insight: "素晴らしい！急上昇を大幅に抑制",
   },
 ];
 
@@ -171,8 +171,8 @@ export function getLevelInfo(level: number): { title: string; iconType: LevelIco
 }
 
 export const cumulativeStats = {
-  totalSteps: 2340000,
-  totalMeals: 284,
-  spikesReduced: 89,
-  longestStreak: 23,
+  totalSteps: 0,
+  totalMeals: 0,
+  spikesReduced: 0,
+  longestStreak: 0,
 };

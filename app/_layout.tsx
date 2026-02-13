@@ -41,7 +41,8 @@ function RootLayoutNav() {
   );
 }
 
-import { registerBackgroundTask } from "@/services/report/background";
+import { registerBackgroundTask } from "./services/report/background";
+import { initRevenueCat } from "./utils/revenueCat";
 
 // ... existing imports
 
@@ -49,6 +50,7 @@ export default function RootLayout() {
   useEffect(() => {
     SplashScreen.hideAsync();
     registerBackgroundTask(); // Register background task on app launch
+    initRevenueCat(); // Initialize RevenueCat
   }, []);
 
   return (

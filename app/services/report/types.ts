@@ -9,6 +9,10 @@ export interface HealthKitData {
     startTime: string;
     endTime: string;
   }[];
+  heartRate: {
+    bpm: number;
+    timestamp: string;
+  }[];
 }
 
 export interface AggregatedReportRequest {

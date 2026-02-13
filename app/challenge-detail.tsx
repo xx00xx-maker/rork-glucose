@@ -29,7 +29,7 @@ export default function ChallengeDetailScreen() {
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.closeButton}
             onPress={() => router.back()}
           >
@@ -40,7 +40,7 @@ export default function ChallengeDetailScreen() {
         </View>
       </SafeAreaView>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -98,11 +98,11 @@ export default function ChallengeDetailScreen() {
                   {!challenge.completed && challenge.progress !== undefined && (
                     <View style={styles.progressBarContainer}>
                       <View style={styles.progressBar}>
-                        <View 
+                        <View
                           style={[
-                            styles.progressFill, 
+                            styles.progressFill,
                             { width: `${(challenge.progress / (challenge.target || 1)) * 100}%` }
-                          ]} 
+                          ]}
                         />
                       </View>
                       <Text style={styles.progressNumbers}>
@@ -144,7 +144,7 @@ export default function ChallengeDetailScreen() {
             <Text style={styles.tipsTitle}>ヒント</Text>
           </View>
           <Text style={styles.tipsText}>
-            食後30分以内に歩くと、血糖値スパイクを効果的に抑えられます。
+            食後30分以内に歩くと、血糖値の急激な上昇を効果的に抑えられます。
             まずは5分の散歩から始めてみましょう！
           </Text>
         </View>

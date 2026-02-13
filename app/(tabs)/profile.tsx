@@ -1,16 +1,16 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { 
-  Settings, 
-  ChevronRight, 
-  Flame, 
-  Footprints, 
-  Camera, 
-  Target, 
-  Lock, 
-  BarChart3, 
+import {
+  Settings,
+  ChevronRight,
+  Flame,
+  Footprints,
+  Camera,
+  Target,
+  Lock,
+  BarChart3,
   Trophy,
   Coins,
   Star,
@@ -28,6 +28,13 @@ import {
 import Colors from '@/constants/colors';
 import { useApp } from '@/contexts/AppContext';
 import { getLevelInfo, BadgeIconType, LevelIconType } from '@/constants/mockData';
+
+const STAT_TOOLTIPS: Record<string, string> = {
+  steps: 'アプリ開始からの累計歩数',
+  meals: '写真で記録した食事の合計数',
+  spikes: '食後ウォークで血糖値の急上昇を抑えた回数',
+  streak: '目標を連続で達成した最長日数',
+};
 
 const BadgeIcon = ({ type, size = 24, color }: { type: BadgeIconType; size?: number; color: string }) => {
   switch (type) {
@@ -82,17 +89,22 @@ const LevelIcon = ({ type, size = 40 }: { type: LevelIconType; size?: number }) 
 
 export default function ProfileScreen() {
   const { user, badges, streaks, cumulativeStats } = useApp();
+  const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
   const levelInfo = getLevelInfo(user.level);
   const progressPercent = ((user.totalXpForNextLevel - user.xpToNextLevel) / user.totalXpForNextLevel) * 100;
   const unlockedBadges = badges.filter(b => b.unlocked);
   const lockedBadges = badges.filter(b => !b.unlocked);
+
+  const toggleTooltip = (id: string) => {
+    setActiveTooltip(prev => prev === id ? null : id);
+  };
 
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <View style={styles.header}>
           <Text style={styles.title}>プロフィール</Text>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.settingsButton}
             onPress={() => router.push('/settings' as any)}
           >
@@ -101,134 +113,148 @@ export default function ProfileScreen() {
         </View>
       </SafeAreaView>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.profileCard}>
-          <View style={styles.avatarContainer}>
-            <LevelIcon type={levelInfo.iconType} />
-          </View>
-          <Text style={styles.levelTitle}>Lv.{user.level} {levelInfo.title}</Text>
-          <View style={styles.progressContainer}>
-            <View style={styles.progressBar}>
-              <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
+        {/* Dismiss tooltip on background tap */}
+        <Pressable onPress={() => setActiveTooltip(null)}>
+          <View style={styles.profileCard}>
+            <View style={styles.avatarContainer}>
+              <LevelIcon type={levelInfo.iconType} />
             </View>
-            <Text style={styles.progressText}>{Math.round(progressPercent)}%</Text>
+            <Text style={styles.levelTitle}>Lv.{user.level} {levelInfo.title}</Text>
+            <View style={styles.progressContainer}>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
+              </View>
+              <Text style={styles.progressText}>{Math.round(progressPercent)}%</Text>
+            </View>
+            <Text style={styles.xpText}>次のレベルまで {user.xpToNextLevel} XP</Text>
+            <View style={styles.coinsContainer}>
+              <Coins size={18} color={Colors.gold} strokeWidth={2} />
+              <Text style={styles.coinsText}>{user.coins.toLocaleString()}コイン</Text>
+            </View>
           </View>
-          <Text style={styles.xpText}>次のレベルまで {user.xpToNextLevel} XP</Text>
-          <View style={styles.coinsContainer}>
-            <Coins size={18} color={Colors.gold} strokeWidth={2} />
-            <Text style={styles.coinsText}>{user.coins.toLocaleString()}コイン</Text>
-          </View>
-        </View>
 
-        <View style={styles.statsCard}>
-          <View style={styles.cardTitleRow}>
-            <BarChart3 size={18} color={Colors.blue} strokeWidth={2} />
-            <Text style={styles.cardTitle}>累計データ</Text>
-          </View>
-          <View style={styles.statsGrid}>
-            <View style={styles.statItem}>
-              <Footprints size={18} color={Colors.green} />
-              <Text style={styles.statValue}>{(cumulativeStats.totalSteps / 10000).toFixed(0)}万</Text>
-              <Text style={styles.statLabel}>歩</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Camera size={18} color={Colors.orange} />
-              <Text style={styles.statValue}>{cumulativeStats.totalMeals}</Text>
-              <Text style={styles.statLabel}>食記録</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Target size={18} color={Colors.blue} />
-              <Text style={styles.statValue}>{cumulativeStats.spikesReduced}</Text>
-              <Text style={styles.statLabel}>スパイク抑制</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Flame size={18} color={Colors.gold} />
-              <Text style={styles.statValue}>{cumulativeStats.longestStreak}</Text>
-              <Text style={styles.statLabel}>最長ストリーク</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.badgesCard}>
-          <View style={styles.badgesHeader}>
+          <View style={styles.statsCard}>
             <View style={styles.cardTitleRow}>
-              <Trophy size={18} color={Colors.gold} strokeWidth={2} />
-              <Text style={styles.cardTitle}>獲得バッジ（{unlockedBadges.length} / {badges.length}）</Text>
+              <BarChart3 size={18} color={Colors.blue} strokeWidth={2} />
+              <Text style={styles.cardTitle}>累計データ</Text>
             </View>
-            <TouchableOpacity 
-              style={styles.viewAllButton}
-              onPress={() => router.push('/all-badges')}
-            >
-              <Text style={styles.viewAllText}>すべて見る</Text>
-              <ChevronRight size={16} color={Colors.textMuted} />
-            </TouchableOpacity>
-          </View>
-          
-          <View style={styles.badgesGrid}>
-            {unlockedBadges.slice(0, 6).map((badge) => (
-              <View key={badge.id} style={styles.badgeItem}>
-                <View style={styles.badgeIcon}>
-                  <BadgeIcon type={badge.iconType} size={24} color={Colors.gold} />
+            {activeTooltip && (
+              <View style={styles.tooltipContainer}>
+                <View style={styles.tooltipBubble}>
+                  <Text style={styles.tooltipText}>{STAT_TOOLTIPS[activeTooltip]}</Text>
                 </View>
+                <View style={[
+                  styles.tooltipArrow,
+                  { left: activeTooltip === 'steps' ? '12%' : activeTooltip === 'meals' ? '37%' : activeTooltip === 'spikes' ? '62%' : '87%' },
+                ]} />
               </View>
-            ))}
-            {lockedBadges.slice(0, Math.max(0, 6 - unlockedBadges.length)).map((badge) => (
-              <View key={badge.id} style={[styles.badgeItem, styles.badgeItemLocked]}>
-                <View style={[styles.badgeIcon, styles.badgeIconLocked]}>
-                  <Lock size={16} color={Colors.textMuted} />
-                </View>
-              </View>
-            ))}
+            )}
+            <View style={styles.statsGrid}>
+              <TouchableOpacity style={styles.statItem} onPress={() => toggleTooltip('steps')} activeOpacity={0.7}>
+                <Footprints size={18} color={Colors.green} />
+                <Text style={styles.statValue}>{(cumulativeStats.totalSteps / 10000).toFixed(0)}万</Text>
+                <Text style={styles.statLabel}>歩</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.statItem} onPress={() => toggleTooltip('meals')} activeOpacity={0.7}>
+                <Camera size={18} color={Colors.orange} />
+                <Text style={styles.statValue}>{cumulativeStats.totalMeals}</Text>
+                <Text style={styles.statLabel}>食記録</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.statItem} onPress={() => toggleTooltip('spikes')} activeOpacity={0.7}>
+                <Target size={18} color={Colors.blue} />
+                <Text style={styles.statValue}>{cumulativeStats.spikesReduced}</Text>
+                <Text style={styles.statLabel}>急上昇を抑制</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.statItem} onPress={() => toggleTooltip('streak')} activeOpacity={0.7}>
+                <Flame size={18} color={Colors.gold} />
+                <Text style={styles.statValue}>{cumulativeStats.longestStreak}</Text>
+                <Text style={styles.statLabel}>最長継続</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
-          {unlockedBadges.length > 0 && (
-            <View style={styles.latestBadge}>
-              <Text style={styles.latestBadgeLabel}>最新:</Text>
-              <BadgeIcon type={unlockedBadges[unlockedBadges.length - 1].iconType} size={18} color={Colors.gold} />
-              <Text style={styles.latestBadgeName}>「{unlockedBadges[unlockedBadges.length - 1].name}」</Text>
+          <View style={styles.badgesCard}>
+            <View style={styles.badgesHeader}>
+              <View style={styles.cardTitleRow}>
+                <Trophy size={18} color={Colors.gold} strokeWidth={2} />
+                <Text style={styles.cardTitle}>獲得バッジ（{unlockedBadges.length} / {badges.length}）</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.viewAllButton}
+                onPress={() => router.push('/all-badges')}
+              >
+                <Text style={styles.viewAllText}>すべて見る</Text>
+                <ChevronRight size={16} color={Colors.textMuted} />
+              </TouchableOpacity>
             </View>
-          )}
-        </View>
 
-        <View style={styles.streaksCard}>
-          <View style={styles.cardTitleRow}>
-            <Flame size={18} color={Colors.orange} strokeWidth={2} />
-            <Text style={styles.cardTitle}>現在のストリーク</Text>
+            <View style={styles.badgesGrid}>
+              {unlockedBadges.slice(0, 6).map((badge) => (
+                <View key={badge.id} style={styles.badgeItem}>
+                  <View style={styles.badgeIcon}>
+                    <BadgeIcon type={badge.iconType} size={24} color={Colors.gold} />
+                  </View>
+                </View>
+              ))}
+              {lockedBadges.slice(0, Math.max(0, 6 - unlockedBadges.length)).map((badge) => (
+                <View key={badge.id} style={[styles.badgeItem, styles.badgeItemLocked]}>
+                  <View style={[styles.badgeIcon, styles.badgeIconLocked]}>
+                    <Lock size={16} color={Colors.textMuted} />
+                  </View>
+                </View>
+              ))}
+            </View>
+
+            {unlockedBadges.length > 0 && (
+              <View style={styles.latestBadge}>
+                <Text style={styles.latestBadgeLabel}>最新:</Text>
+                <BadgeIcon type={unlockedBadges[unlockedBadges.length - 1].iconType} size={18} color={Colors.gold} />
+                <Text style={styles.latestBadgeName}>「{unlockedBadges[unlockedBadges.length - 1].name}」</Text>
+              </View>
+            )}
           </View>
-          <View style={styles.streaksList}>
-            <View style={styles.streakItem}>
-              <View style={[styles.streakIcon, { backgroundColor: `${Colors.orange}20` }]}>
-                <Flame size={18} color={Colors.orange} fill={Colors.orange} />
-              </View>
-              <View style={styles.streakInfo}>
-                <Text style={styles.streakLabel}>歩数ストリーク</Text>
-                <Text style={[styles.streakValue, { color: Colors.orange }]}>{streaks.steps}日</Text>
-              </View>
+
+          <View style={styles.streaksCard}>
+            <View style={styles.cardTitleRow}>
+              <Flame size={18} color={Colors.orange} strokeWidth={2} />
+              <Text style={styles.cardTitle}>継続記録</Text>
             </View>
-            <View style={styles.streakItem}>
-              <View style={[styles.streakIcon, { backgroundColor: `${Colors.green}20` }]}>
-                <Target size={18} color={Colors.green} />
+            <View style={styles.streaksList}>
+              <View style={styles.streakItem}>
+                <View style={[styles.streakIcon, { backgroundColor: `${Colors.orange}20` }]}>
+                  <Flame size={18} color={Colors.orange} fill={Colors.orange} />
+                </View>
+                <View style={styles.streakInfo}>
+                  <Text style={styles.streakLabel}>歩数の継続</Text>
+                  <Text style={[styles.streakValue, { color: Colors.orange }]}>{streaks.steps}日</Text>
+                </View>
               </View>
-              <View style={styles.streakInfo}>
-                <Text style={styles.streakLabel}>安定ストリーク</Text>
-                <Text style={[styles.streakValue, { color: Colors.green }]}>{streaks.stability}日</Text>
+              <View style={styles.streakItem}>
+                <View style={[styles.streakIcon, { backgroundColor: `${Colors.green}20` }]}>
+                  <Target size={18} color={Colors.green} />
+                </View>
+                <View style={styles.streakInfo}>
+                  <Text style={styles.streakLabel}>血糖値安定の継続</Text>
+                  <Text style={[styles.streakValue, { color: Colors.green }]}>{streaks.stability}日</Text>
+                </View>
               </View>
-            </View>
-            <View style={styles.streakItem}>
-              <View style={[styles.streakIcon, { backgroundColor: `${Colors.blue}20` }]}>
-                <Camera size={18} color={Colors.blue} />
-              </View>
-              <View style={styles.streakInfo}>
-                <Text style={styles.streakLabel}>記録ストリーク</Text>
-                <Text style={[styles.streakValue, { color: Colors.blue }]}>{streaks.recording}日</Text>
+              <View style={styles.streakItem}>
+                <View style={[styles.streakIcon, { backgroundColor: `${Colors.blue}20` }]}>
+                  <Camera size={18} color={Colors.blue} />
+                </View>
+                <View style={styles.streakInfo}>
+                  <Text style={styles.streakLabel}>食事記録の継続</Text>
+                  <Text style={[styles.streakValue, { color: Colors.blue }]}>{streaks.recording}日</Text>
+                </View>
               </View>
             </View>
           </View>
-        </View>
+        </Pressable>
       </ScrollView>
     </View>
   );
@@ -471,5 +497,32 @@ const styles = StyleSheet.create({
   streakValue: {
     fontSize: 18,
     fontWeight: '700' as const,
+  },
+  tooltipContainer: {
+    marginBottom: 8,
+  },
+  tooltipBubble: {
+    backgroundColor: '#EAEAEA',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  tooltipArrow: {
+    position: 'absolute',
+    bottom: -6,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderTopWidth: 7,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#EAEAEA',
+    marginLeft: -7,
+  },
+  tooltipText: {
+    color: '#333333',
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

@@ -8,15 +8,13 @@ interface CurrentGlucoseCardProps {
   trend: 'rising' | 'falling' | 'stable';
   updatedAt: string;
   heartRate?: number;
-  hasAppleWatch?: boolean;
 }
 
-export default function CurrentGlucoseCard({ 
-  value, 
-  trend, 
-  updatedAt, 
+export default function CurrentGlucoseCard({
+  value,
+  trend,
+  updatedAt,
   heartRate,
-  hasAppleWatch 
 }: CurrentGlucoseCardProps) {
   const getTrendIcon = () => {
     switch (trend) {
@@ -65,7 +63,7 @@ export default function CurrentGlucoseCard({
 
         <View style={styles.metaSection}>
           <Text style={styles.updatedText}>最終更新 {updatedAt}</Text>
-          {hasAppleWatch && heartRate && (
+          {heartRate !== undefined && heartRate > 0 && (
             <View style={styles.heartRateRow}>
               <Heart size={14} color={Colors.purple} fill={Colors.purple} />
               <Text style={styles.heartRateText}>{heartRate} bpm</Text>

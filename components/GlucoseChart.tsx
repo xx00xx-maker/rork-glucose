@@ -22,7 +22,7 @@ export default function GlucoseChart({ data, showHeartRate = false, height = 200
   const chartWidth = SCREEN_WIDTH - 64;
   const chartHeight = height - 40;
   const padding = { top: 20, right: 10, bottom: 30, left: 35 };
-  
+
   const innerWidth = chartWidth - padding.left - padding.right;
   const innerHeight = chartHeight - padding.top - padding.bottom;
 
@@ -51,10 +51,10 @@ export default function GlucoseChart({ data, showHeartRate = false, height = 200
 
     const glucosePoints = data.map((d, i) => ({ x: xScale(i), y: yScaleGlucose(d.glucose), value: d.glucose }));
     const stepsPoints = data.map((d, i) => ({ x: xScale(i), y: yScaleSteps(d.steps), value: d.steps }));
-    const heartRatePoints = data.map((d, i) => ({ 
-      x: xScale(i), 
-      y: yScaleHeartRate(d.heartRate || 70), 
-      value: d.heartRate || 70 
+    const heartRatePoints = data.map((d, i) => ({
+      x: xScale(i),
+      y: yScaleHeartRate(d.heartRate || 70),
+      value: d.heartRate || 70
     }));
 
     const createSmoothPath = (points: { x: number; y: number }[]) => {
@@ -86,6 +86,19 @@ export default function GlucoseChart({ data, showHeartRate = false, height = 200
   }, [data, innerWidth, innerHeight, padding, showHeartRate]);
 
   const yLabels = [200, 140, 70];
+
+  if (data.length === 0) {
+    return (
+      <View style={[styles.container, { height, justifyContent: 'center' }]}>
+        <Text style={styles.noDataText}>
+          血糖値データがありません
+        </Text>
+        <Text style={styles.noDataSubText}>
+          CGMやリブレ等のデバイスを接続すると{'\n'}ここにグラフが表示されます
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { height }]}>
@@ -224,5 +237,18 @@ const styles = StyleSheet.create({
   legendText: {
     fontSize: 11,
     color: Colors.textMuted,
+  },
+  noDataText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  noDataSubText: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 18,
   },
 });

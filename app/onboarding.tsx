@@ -10,14 +10,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path, Defs, LinearGradient, Stop, Circle, Rect } from 'react-native-svg';
-import { 
-  Check, 
-  Heart, 
-  Activity, 
-  Target, 
-  Trophy, 
-  Flame, 
+import {
+  Check,
+  Heart,
+  Activity,
+  Target,
+  Trophy,
+  Flame,
   TrendingDown,
   Footprints,
   ArrowRight,
@@ -31,6 +32,10 @@ import {
   Utensils,
 } from 'lucide-react-native';
 import { useApp } from '@/contexts/AppContext';
+import { getOfferings, purchasePackage, restorePurchases } from './utils/revenueCat';
+import { initHealthKit } from './services/report/healthkit';
+import { PurchasesPackage } from 'react-native-purchases';
+import { Alert, ActivityIndicator } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -42,7 +47,7 @@ const LightColors = {
   cardBackgroundAlt: '#F1F5F9',
   border: '#E2E8F0',
   borderLight: '#F1F5F9',
-  
+
   primary: '#10B981',
   primaryLight: '#ECFDF5',
   primaryDark: '#059669',
@@ -54,14 +59,14 @@ const LightColors = {
   goldLight: '#FEFCE8',
   purple: '#8B5CF6',
   purpleLight: '#F5F3FF',
-  
+
   text: '#0F172A',
   textSecondary: '#475569',
   textMuted: '#94A3B8',
 };
 
 const concerns = [
-  { id: 1, text: '食後の血糖値スパイクが気になる' },
+  { id: 1, text: '食後の急激な血糖値の上昇が気になる' },
   { id: 2, text: '運動が血糖値に効いているか分からない' },
   { id: 3, text: '運動を習慣化したいが続かない' },
   { id: 4, text: '薬以外の方法で血糖を安定させたい' },
@@ -77,7 +82,7 @@ const goals = [
 const reviews = [
   {
     id: 1,
-    text: 'ストリークを途切れさせたくなくて、毎日自然と歩くように。HbA1cが0.5下がった',
+    text: '継続記録を途切れさせたくなくて、毎日自然と歩くように。HbA1cが0.5下がった',
     author: 'K.T',
     age: '48歳',
     rating: 5,
@@ -101,7 +106,7 @@ const reviews = [
 const WelcomeChart = () => {
   const width = SCREEN_WIDTH - 80;
   const height = 140;
-  
+
   return (
     <View style={welcomeChartStyles.container}>
       <Svg width={width} height={height}>
@@ -111,7 +116,7 @@ const WelcomeChart = () => {
             <Stop offset="100%" stopColor={LightColors.primary} stopOpacity="0.05" />
           </LinearGradient>
         </Defs>
-        
+
         <Rect
           x={width * 0.5}
           y={20}
@@ -120,7 +125,7 @@ const WelcomeChart = () => {
           fill="url(#greenGradient)"
           rx={8}
         />
-        
+
         <Path
           d={`M 20 ${height - 50} Q ${width * 0.25} ${height - 50}, ${width * 0.35} ${height - 90} Q ${width * 0.45} ${height - 130}, ${width * 0.5} ${height - 80} Q ${width * 0.6} ${height - 30}, ${width * 0.75} ${height - 55} L ${width - 20} ${height - 55}`}
           stroke={LightColors.orange}
@@ -128,7 +133,7 @@ const WelcomeChart = () => {
           fill="none"
           strokeLinecap="round"
         />
-        
+
         <Circle cx={width * 0.35} cy={height - 90} r="6" fill={LightColors.orange} />
         <Circle cx={width * 0.75} cy={height - 55} r="6" fill={LightColors.primary} />
       </Svg>
@@ -144,10 +149,79 @@ const welcomeChartStyles = StyleSheet.create({
 });
 
 export default function OnboardingScreen() {
-  const { completeOnboarding } = useApp();
+  const { completeOnboarding, updateUser } = useApp();
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedConcerns, setSelectedConcerns] = useState<number[]>([]);
   const [selectedGoal, setSelectedGoal] = useState<number | null>(null);
+  const [packages, setPackages] = useState<{ monthly: PurchasesPackage | null; annual: PurchasesPackage | null }>({ monthly: null, annual: null });
+  const [isPurchasing, setIsPurchasing] = useState(false);
+
+  useEffect(() => {
+    if (currentStep === 7) {
+      loadOfferings();
+    }
+  }, [currentStep]);
+
+  const loadOfferings = async () => {
+    const offerings = await getOfferings();
+    if (offerings) {
+      setPackages({
+        monthly: offerings.monthly || null,
+        annual: offerings.annual || null,
+      });
+    }
+  };
+
+  const handleConnectHealthKit = async () => {
+    try {
+      const success = await initHealthKit();
+      if (success) {
+        Alert.alert('接続完了', 'Apple Healthとの接続に成功しました。');
+      } else {
+        Alert.alert('接続できませんでした', 'Apple Healthの権限設定から、血糖値と歩数のアクセスを許可してください。');
+      }
+    } catch (e) {
+      console.error('[Onboarding] HealthKit init error:', e);
+      Alert.alert('エラー', 'Apple Healthへの接続に失敗しました。');
+    }
+    handleNext();
+  };
+
+  const handlePurchase = async (pack: PurchasesPackage | null) => {
+    if (!pack) return;
+    setIsPurchasing(true);
+    try {
+      await purchasePackage(pack);
+      updateUser({ plan: 'premium' });
+      handleComplete();
+    } catch (e: any) {
+      if (!e.userCancelled) {
+        Alert.alert('エラー', '購入に失敗しました');
+      }
+    } finally {
+      setIsPurchasing(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    setIsPurchasing(true);
+    try {
+      await restorePurchases();
+      // Check if subscription is now active
+      const { checkSubscriptionStatus } = require('./utils/revenueCat');
+      const isPremium = await checkSubscriptionStatus();
+      if (isPremium) {
+        updateUser({ plan: 'premium' });
+        Alert.alert('復元完了', '購入履歴を復元しました。プレミアムプランが有効です。');
+      } else {
+        Alert.alert('情報', '有効なサブスクリプションが見つかりませんでした。');
+      }
+    } catch (e) {
+      Alert.alert('エラー', '復元に失敗しました');
+    } finally {
+      setIsPurchasing(false);
+    }
+  };
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -205,9 +279,15 @@ export default function OnboardingScreen() {
     }
   };
 
-  const handleComplete = () => {
-    completeOnboarding();
-    router.replace('/(tabs)');
+  const handleComplete = async () => {
+    try {
+      await AsyncStorage.setItem('hasCompletedOnboarding', 'true');
+      completeOnboarding();
+      router.replace('/(tabs)');
+    } catch (e) {
+      console.error('Failed to complete onboarding:', e);
+      router.replace('/(tabs)');
+    }
   };
 
   const toggleConcern = (id: number) => {
@@ -238,7 +318,7 @@ export default function OnboardingScreen() {
     switch (currentStep) {
       case 0:
         return (
-          <View style={styles.stepContent}>
+          <ScrollView style={styles.scrollContent} contentContainerStyle={styles.stepContentPadded} showsVerticalScrollIndicator={false}>
             <View style={styles.heroSection}>
               <Animated.View style={[styles.heroIconWrapper, { transform: [{ scale: pulseAnim }] }]}>
                 <View style={styles.heroIconCircle}>
@@ -246,7 +326,7 @@ export default function OnboardingScreen() {
                 </View>
               </Animated.View>
             </View>
-            
+
             <View style={styles.textSection}>
               <Text style={styles.headline}>
                 歩くだけで、{'\n'}血糖値は変わる
@@ -279,7 +359,7 @@ export default function OnboardingScreen() {
                 <View style={styles.statArrowContainer}>
                   <TrendingDown size={14} color={LightColors.primary} strokeWidth={2} />
                 </View>
-                <Text style={styles.statDesc}>スパイク抑制</Text>
+                <Text style={styles.statDesc}>急上昇を抑制</Text>
               </View>
             </View>
 
@@ -289,7 +369,7 @@ export default function OnboardingScreen() {
                 <ArrowRight size={20} color="#FFF" strokeWidth={2.5} />
               </TouchableOpacity>
             </View>
-          </View>
+          </ScrollView>
         );
 
       case 1:
@@ -300,7 +380,7 @@ export default function OnboardingScreen() {
                 こんなお悩み、{'\n'}ありませんか？
               </Text>
             </View>
-            
+
             <View style={styles.optionsList}>
               {concerns.map((concern) => (
                 <TouchableOpacity
@@ -329,11 +409,11 @@ export default function OnboardingScreen() {
                 </TouchableOpacity>
               ))}
             </View>
-            
+
             <Text style={styles.helperText}>
               選択した内容に応じて、最適な提案をします
             </Text>
-            
+
             <View style={styles.bottomSection}>
               <TouchableOpacity
                 style={[styles.primaryButton, selectedConcerns.length === 0 && styles.buttonDisabled]}
@@ -355,7 +435,7 @@ export default function OnboardingScreen() {
                 血糖値が安定したら、{'\n'}何が変わりますか？
               </Text>
             </View>
-            
+
             <View style={styles.goalsList}>
               {goals.map((goal) => {
                 const IconComponent = goal.icon;
@@ -373,9 +453,9 @@ export default function OnboardingScreen() {
                       styles.goalIconWrapper,
                       selectedGoal === goal.id && styles.goalIconWrapperSelected
                     ]}>
-                      <IconComponent 
-                        size={22} 
-                        color={selectedGoal === goal.id ? LightColors.primary : LightColors.textSecondary} 
+                      <IconComponent
+                        size={22}
+                        color={selectedGoal === goal.id ? LightColors.primary : LightColors.textSecondary}
                         strokeWidth={1.5}
                       />
                     </View>
@@ -393,7 +473,7 @@ export default function OnboardingScreen() {
                 );
               })}
             </View>
-            
+
             <View style={styles.bottomSection}>
               <TouchableOpacity
                 style={[styles.primaryButton, !selectedGoal && styles.buttonDisabled]}
@@ -419,7 +499,7 @@ export default function OnboardingScreen() {
                 自然と習慣が身につきます
               </Text>
             </View>
-            
+
             <View style={styles.featureCardsVertical}>
               <View style={styles.featureCardLarge}>
                 <View style={[styles.featureIconBox, { backgroundColor: LightColors.accentLight }]}>
@@ -430,16 +510,16 @@ export default function OnboardingScreen() {
                   <Text style={styles.featureCardDescLarge}>毎日3つのミッションをクリアして経験値を獲得</Text>
                 </View>
               </View>
-              
+
               <View style={styles.featureCardsRow}>
                 <View style={styles.featureCardSmall}>
                   <View style={[styles.featureIconBoxSmall, { backgroundColor: LightColors.orangeLight }]}>
                     <Flame size={24} color={LightColors.orange} strokeWidth={1.5} />
                   </View>
-                  <Text style={styles.featureCardTitleSmall}>ストリーク</Text>
+                  <Text style={styles.featureCardTitleSmall}>継続記録</Text>
                   <Text style={styles.featureCardDescSmall}>連続達成でボーナス</Text>
                 </View>
-                
+
                 <View style={styles.featureCardSmall}>
                   <View style={[styles.featureIconBoxSmall, { backgroundColor: LightColors.goldLight }]}>
                     <Trophy size={24} color={LightColors.gold} strokeWidth={1.5} />
@@ -449,7 +529,7 @@ export default function OnboardingScreen() {
                 </View>
               </View>
             </View>
-            
+
             <View style={styles.bottomSection}>
               <TouchableOpacity style={styles.primaryButton} onPress={handleNext}>
                 <Text style={styles.primaryButtonText}>次へ</Text>
@@ -491,9 +571,9 @@ export default function OnboardingScreen() {
                 </Text>
               </View>
             </View>
-            
+
             <View style={styles.bottomSection}>
-              <TouchableOpacity style={styles.primaryButton} onPress={handleNext}>
+              <TouchableOpacity style={styles.primaryButton} onPress={handleConnectHealthKit}>
                 <Text style={styles.primaryButtonText}>Apple Healthに接続</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.skipButton} onPress={handleNext}>
@@ -515,13 +595,13 @@ export default function OnboardingScreen() {
                 最適な運動タイミングを発見します
               </Text>
             </View>
-            
+
             <View style={styles.analysisPreviewCard}>
               <View style={styles.analysisPreviewHeader}>
                 <BarChart3 size={20} color={LightColors.primary} strokeWidth={1.5} />
                 <Text style={styles.analysisPreviewHeaderText}>分析例</Text>
               </View>
-              
+
               <View style={styles.analysisPreviewCompare}>
                 <View style={styles.analysisPreviewItem}>
                   <View style={[styles.analysisPreviewIcon, { backgroundColor: LightColors.accentLight }]}>
@@ -541,7 +621,7 @@ export default function OnboardingScreen() {
                   <Text style={styles.analysisPreviewUnit}>mg/dL</Text>
                 </View>
               </View>
-              
+
               <View style={styles.analysisInsightBox}>
                 <Text style={styles.analysisInsightText}>
                   このように、歩数と血糖値の相関を{'\n'}
@@ -553,7 +633,7 @@ export default function OnboardingScreen() {
             <View style={styles.featureListCompact}>
               <View style={styles.featureListItem}>
                 <Check size={16} color={LightColors.accent} strokeWidth={2.5} />
-                <Text style={styles.featureListText}>食後の血糖値スパイク分析</Text>
+                <Text style={styles.featureListText}>食後の血糖値の急上昇を分析</Text>
               </View>
               <View style={styles.featureListItem}>
                 <Check size={16} color={LightColors.accent} strokeWidth={2.5} />
@@ -564,7 +644,7 @@ export default function OnboardingScreen() {
                 <Text style={styles.featureListText}>週次・月次のトレンドレポート</Text>
               </View>
             </View>
-            
+
             <View style={styles.bottomSection}>
               <TouchableOpacity style={styles.primaryButton} onPress={handleNext}>
                 <Text style={styles.primaryButtonText}>次へ</Text>
@@ -583,7 +663,7 @@ export default function OnboardingScreen() {
                   多くの方が{'\n'}習慣化に成功しています
                 </Text>
               </View>
-              
+
               <View style={styles.reviewsGrid}>
                 {reviews.map((review) => (
                   <View key={review.id} style={styles.reviewCard}>
@@ -591,7 +671,7 @@ export default function OnboardingScreen() {
                       <Quote size={16} color={LightColors.primary} strokeWidth={1.5} />
                     </View>
                     <View style={styles.reviewStars}>
-                      {[1,2,3,4,5].map(i => (
+                      {[1, 2, 3, 4, 5].map(i => (
                         <Star key={i} size={12} color="#FBBF24" fill="#FBBF24" />
                       ))}
                     </View>
@@ -603,12 +683,12 @@ export default function OnboardingScreen() {
                   </View>
                 ))}
               </View>
-              
+
               <View style={styles.statsRowCompact}>
                 <View style={styles.statItemCompact}>
                   <Text style={styles.statValueLarge}>4.8</Text>
                   <View style={styles.statStars}>
-                    {[1,2,3,4,5].map(i => (
+                    {[1, 2, 3, 4, 5].map(i => (
                       <Star key={i} size={10} color="#FBBF24" fill="#FBBF24" />
                     ))}
                   </View>
@@ -627,7 +707,7 @@ export default function OnboardingScreen() {
                   <Text style={styles.statLabelSmall}>継続率</Text>
                 </View>
               </View>
-              
+
               <View style={styles.bottomSectionReview}>
                 <TouchableOpacity style={styles.primaryButton} onPress={handleNext}>
                   <Text style={styles.primaryButtonText}>次へ</Text>
@@ -645,7 +725,7 @@ export default function OnboardingScreen() {
               <Text style={styles.paywallHeadline}>
                 血糖ガーディアンに{'\n'}なりませんか？
               </Text>
-              
+
               <View style={styles.benefitsCompact}>
                 <View style={styles.benefitRow}>
                   <View style={styles.benefitIcon}>
@@ -668,39 +748,76 @@ export default function OnboardingScreen() {
               </View>
 
               <View style={styles.pricingSection}>
-                <TouchableOpacity style={styles.pricingCardPrimary} onPress={handleComplete}>
+                {/* Annual Plan */}
+                <TouchableOpacity
+                  style={styles.pricingCardPrimary}
+                  onPress={() => packages.annual ? handlePurchase(packages.annual) : null}
+                  disabled={isPurchasing}
+                >
                   <View style={styles.pricingBadge}>
                     <Text style={styles.pricingBadgeText}>33%お得</Text>
                   </View>
                   <Text style={styles.pricingPlanName}>年間プラン</Text>
-                  <View style={styles.pricingPriceRow}>
-                    <Text style={styles.pricingPrice}>¥7,800</Text>
-                    <Text style={styles.pricingPeriod}>/年</Text>
-                  </View>
-                  <Text style={styles.pricingSubtext}>月額換算 ¥650</Text>
+
+                  {packages.annual ? (
+                    <>
+                      <View style={styles.pricingPriceRow}>
+                        <Text style={styles.pricingPrice}>{packages.annual.product.priceString}</Text>
+                        <Text style={styles.pricingPeriod}>/年</Text>
+                      </View>
+                      <Text style={styles.pricingSubtext}>
+                        月額換算 {packages.annual.product.currencyCode} {Math.round(packages.annual.product.price / 12)}
+                      </Text>
+                    </>
+                  ) : (
+                    <ActivityIndicator color="#fff" style={{ marginVertical: 10 }} />
+                  )}
+
                   <View style={styles.pricingTrialButton}>
-                    <Text style={styles.pricingTrialButtonText}>7日間無料で試す</Text>
+                    <Text style={styles.pricingTrialButtonText}>
+                      {isPurchasing ? '処理中...' : '年間プランで始める'}
+                    </Text>
                   </View>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.pricingCardSecondary} onPress={handleComplete}>
+                <TouchableOpacity
+                  style={styles.pricingCardSecondary}
+                  onPress={() => packages.monthly ? handlePurchase(packages.monthly) : null}
+                  disabled={isPurchasing}
+                >
                   <Text style={styles.pricingPlanNameSecondary}>月額プラン</Text>
-                  <View style={styles.pricingPriceRowSecondary}>
-                    <Text style={styles.pricingPriceSecondary}>¥980</Text>
-                    <Text style={styles.pricingPeriodSecondary}>/月</Text>
-                  </View>
+                  {packages.monthly ? (
+                    <>
+                      <View style={styles.pricingPriceRowSecondary}>
+                        <Text style={styles.pricingPriceSecondary}>{packages.monthly.product.priceString}</Text>
+                        <Text style={styles.pricingPeriodSecondary}>/月</Text>
+                      </View>
+                      {packages.monthly.product.introPrice && (
+                        <Text style={styles.trialText}>
+                          3日間無料トライアル付き
+                        </Text>
+                      )}
+                    </>
+                  ) : (
+                    <ActivityIndicator color={LightColors.text} />
+                  )}
                 </TouchableOpacity>
               </View>
 
               <Text style={styles.pricingDisclaimer}>
                 いつでもキャンセル可能{'\n'}
-                7日以内にキャンセルすれば課金されません
+                無料トライアル期間中にキャンセルすれば課金されません
               </Text>
 
-              <TouchableOpacity style={styles.freeStartButton} onPress={handleComplete}>
+              {/* Restore Button */}
+              <TouchableOpacity style={styles.restoreButton} onPress={handleRestore} disabled={isPurchasing}>
+                <Text style={styles.restoreButtonText}>購入を復元する</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.freeStartButton} onPress={handleComplete} disabled={isPurchasing}>
                 <Text style={styles.freeStartButtonText}>無料版で始める</Text>
               </TouchableOpacity>
-              
+
               <Text style={styles.freeNote}>
                 無料版: 過去3日分のデータ、チャレンジ1つ
               </Text>
@@ -717,10 +834,10 @@ export default function OnboardingScreen() {
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         {renderProgressBar()}
-        <Animated.View 
+        <Animated.View
           style={[
-            styles.content, 
-            { 
+            styles.content,
+            {
               opacity: fadeAnim,
               transform: [{ translateY: slideAnim }]
             }
@@ -1429,6 +1546,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: LightColors.textSecondary,
   },
+  trialText: {
+    fontSize: 12,
+    color: LightColors.primary,
+    fontWeight: '600' as const,
+    marginTop: 4,
+  },
   pricingDisclaimer: {
     fontSize: 12,
     color: LightColors.textMuted,
@@ -1449,5 +1572,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: LightColors.textMuted,
     textAlign: 'center',
+  },
+  restoreButton: {
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  restoreButtonText: {
+    fontSize: 14,
+    color: LightColors.primary,
+    fontWeight: '500',
   },
 });

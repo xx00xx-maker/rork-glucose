@@ -1,5 +1,6 @@
 
 import * as SQLite from 'expo-sqlite';
+import * as Crypto from 'expo-crypto';
 
 // New API for SDK 50+
 let db: SQLite.SQLiteDatabase;
@@ -62,7 +63,7 @@ export async function saveGlucoseRecords(records: { value: number; timestamp: st
   for (const r of records) {
     await database.runAsync(
       'INSERT OR IGNORE INTO blood_glucose (id, value, timestamp, source) VALUES (?, ?, ?, ?)',
-      [crypto.randomUUID(), r.value, new Date(r.timestamp).getTime(), r.source]
+      [Crypto.randomUUID(), r.value, new Date(r.timestamp).getTime(), r.source]
     );
   }
 }

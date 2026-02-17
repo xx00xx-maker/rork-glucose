@@ -2,7 +2,7 @@
   "expo": {
     "name": "血糖トラッカー",
     "slug": "ketogardian",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "rork-app",
@@ -16,6 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "app.rork.ketogardian",
+      "buildNumber": "2",
       "infoPlist": {
         "NSHealthShareUsageDescription": "レポート生成のために血糖値と歩数データを利用します。",
         "NSHealthUpdateUsageDescription": "データ分析のためにHealthKitへアクセスします。",

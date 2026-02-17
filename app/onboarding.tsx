@@ -30,6 +30,13 @@ import {
   Award,
   Quote,
   Utensils,
+  Home,
+  List,
+  User,
+  ChevronRight,
+  ChevronLeft,
+  Bell,
+  Camera as CameraIcon,
 } from 'lucide-react-native';
 import { useApp } from '@/contexts/AppContext';
 import { getOfferings, purchasePackage, restorePurchases } from './utils/revenueCat';
@@ -39,7 +46,7 @@ import { Alert, ActivityIndicator } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const TOTAL_STEPS = 8;
+const TOTAL_STEPS = 15;
 
 const LightColors = {
   background: '#FFFFFF',
@@ -152,12 +159,15 @@ export default function OnboardingScreen() {
   const { completeOnboarding, updateUser } = useApp();
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedConcerns, setSelectedConcerns] = useState<number[]>([]);
-  const [selectedGoal, setSelectedGoal] = useState<number | null>(null);
+  const [selectedGoals, setSelectedGoals] = useState<number[]>([]);
+  const [glucoseMin, setGlucoseMin] = useState(70);
+  const [glucoseMax, setGlucoseMax] = useState(140);
+  const [stepTarget, setStepTarget] = useState(6000);
   const [packages, setPackages] = useState<{ monthly: PurchasesPackage | null; annual: PurchasesPackage | null }>({ monthly: null, annual: null });
   const [isPurchasing, setIsPurchasing] = useState(false);
 
   useEffect(() => {
-    if (currentStep === 7) {
+    if (currentStep === 14) {
       loadOfferings();
     }
   }, [currentStep]);
@@ -279,10 +289,20 @@ export default function OnboardingScreen() {
     }
   };
 
+  const handleBack = () => {
+    if (currentStep > 0) {
+      if (currentStep >= 6 && currentStep <= 9) {
+        animateTransition(5);
+      } else {
+        animateTransition(currentStep - 1);
+      }
+    }
+  };
+
   const handleComplete = async () => {
     try {
       await AsyncStorage.setItem('hasCompletedOnboarding', 'true');
-      completeOnboarding();
+      await completeOnboarding();
       router.replace('/(tabs)');
     } catch (e) {
       console.error('Failed to complete onboarding:', e);
@@ -296,8 +316,21 @@ export default function OnboardingScreen() {
     );
   };
 
+  const toggleGoal = (id: number) => {
+    setSelectedGoals(prev =>
+      prev.includes(id) ? prev.filter(g => g !== id) : [...prev, id]
+    );
+  };
+
   const renderProgressBar = () => (
     <View style={styles.progressContainer}>
+      {currentStep > 0 ? (
+        <TouchableOpacity onPress={handleBack} style={styles.backButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <ChevronLeft size={22} color={LightColors.textMuted} />
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.backButtonPlaceholder} />
+      )}
       <View style={styles.progressBarWrapper}>
         {Array.from({ length: TOTAL_STEPS }).map((_, index) => (
           <View
@@ -434,40 +467,46 @@ export default function OnboardingScreen() {
               <Text style={styles.headlineSmall}>
                 血糖値が安定したら、{'\n'}何が変わりますか？
               </Text>
+              <Text style={styles.subtextSmall}>
+                当てはまるものをすべて選んでください
+              </Text>
             </View>
 
             <View style={styles.goalsList}>
               {goals.map((goal) => {
                 const IconComponent = goal.icon;
+                const isSelected = selectedGoals.includes(goal.id);
                 return (
                   <TouchableOpacity
                     key={goal.id}
                     style={[
                       styles.goalOption,
-                      selectedGoal === goal.id && styles.goalOptionSelected,
+                      isSelected && styles.goalOptionSelected,
                     ]}
-                    onPress={() => setSelectedGoal(goal.id)}
+                    onPress={() => toggleGoal(goal.id)}
                     activeOpacity={0.7}
                   >
                     <View style={[
                       styles.goalIconWrapper,
-                      selectedGoal === goal.id && styles.goalIconWrapperSelected
+                      isSelected && styles.goalIconWrapperSelected
                     ]}>
                       <IconComponent
                         size={22}
-                        color={selectedGoal === goal.id ? LightColors.primary : LightColors.textSecondary}
+                        color={isSelected ? LightColors.primary : LightColors.textSecondary}
                         strokeWidth={1.5}
                       />
                     </View>
                     <Text style={[
                       styles.goalText,
-                      selectedGoal === goal.id && styles.goalTextSelected
+                      isSelected && styles.goalTextSelected
                     ]}>{goal.text}</Text>
                     <View style={[
-                      styles.radioOuter,
-                      selectedGoal === goal.id && styles.radioOuterSelected
+                      styles.checkbox,
+                      isSelected && styles.checkboxChecked,
                     ]}>
-                      {selectedGoal === goal.id && <View style={styles.radioInner} />}
+                      {isSelected && (
+                        <Check size={14} color="#FFF" strokeWidth={3} />
+                      )}
                     </View>
                   </TouchableOpacity>
                 );
@@ -476,9 +515,9 @@ export default function OnboardingScreen() {
 
             <View style={styles.bottomSection}>
               <TouchableOpacity
-                style={[styles.primaryButton, !selectedGoal && styles.buttonDisabled]}
+                style={[styles.primaryButton, selectedGoals.length === 0 && styles.buttonDisabled]}
                 onPress={handleNext}
-                disabled={!selectedGoal}
+                disabled={selectedGoals.length === 0}
               >
                 <Text style={styles.primaryButtonText}>次へ</Text>
                 <ArrowRight size={20} color="#FFF" strokeWidth={2.5} />
@@ -490,6 +529,447 @@ export default function OnboardingScreen() {
       case 3:
         return (
           <View style={styles.stepContent}>
+            <View style={styles.textSectionTop}>
+              <Text style={styles.headlineSmall}>
+                あなた専用の{'\n'}プランを作成します
+              </Text>
+              <Text style={styles.subtextSmall}>
+                血糖値の目標範囲を設定してください
+              </Text>
+            </View>
+
+            <View style={styles.sliderCard}>
+              <Text style={styles.sliderSectionTitle}>目標血糖値の範囲</Text>
+              <View style={styles.rangeBarContainer}>
+                <Text style={styles.rangeBarLabel}>50</Text>
+                <View style={styles.rangeBar}>
+                  <View style={[styles.rangeFill, { left: `${((glucoseMin - 50) / 200) * 100}%`, width: `${((glucoseMax - glucoseMin) / 200) * 100}%` }]} />
+                </View>
+                <Text style={styles.rangeBarLabel}>250</Text>
+              </View>
+
+              <View style={styles.stepperGridRow}>
+                <View style={styles.stepperCard}>
+                  <Text style={styles.stepperLabel}>下限</Text>
+                  <View style={styles.stepperRow}>
+                    <TouchableOpacity style={styles.stepperBtn} onPress={() => setGlucoseMin(Math.max(50, glucoseMin - 5))}>
+                      <Text style={styles.stepperBtnText}>−</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.stepperValue}>{glucoseMin}</Text>
+                    <TouchableOpacity style={styles.stepperBtn} onPress={() => setGlucoseMin(Math.min(glucoseMax - 10, glucoseMin + 5))}>
+                      <Text style={styles.stepperBtnText}>＋</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.stepperUnit}>mg/dL</Text>
+                </View>
+
+                <View style={styles.stepperDivider} />
+
+                <View style={styles.stepperCard}>
+                  <Text style={styles.stepperLabel}>上限</Text>
+                  <View style={styles.stepperRow}>
+                    <TouchableOpacity style={styles.stepperBtn} onPress={() => setGlucoseMax(Math.max(glucoseMin + 10, glucoseMax - 5))}>
+                      <Text style={styles.stepperBtnText}>−</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.stepperValue}>{glucoseMax}</Text>
+                    <TouchableOpacity style={styles.stepperBtn} onPress={() => setGlucoseMax(Math.min(250, glucoseMax + 5))}>
+                      <Text style={styles.stepperBtnText}>＋</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.stepperUnit}>mg/dL</Text>
+                </View>
+              </View>
+
+              <View style={styles.presetRow}>
+                <TouchableOpacity style={[styles.presetChip, glucoseMin === 70 && glucoseMax === 140 && styles.presetChipActive]} onPress={() => { setGlucoseMin(70); setGlucoseMax(140); }}>
+                  <Text style={[styles.presetChipText, glucoseMin === 70 && glucoseMax === 140 && styles.presetChipTextActive]}>標準 (70-140)</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.presetChip, glucoseMin === 70 && glucoseMax === 130 && styles.presetChipActive]} onPress={() => { setGlucoseMin(70); setGlucoseMax(130); }}>
+                  <Text style={[styles.presetChipText, glucoseMin === 70 && glucoseMax === 130 && styles.presetChipTextActive]}>やや厳密 (70-130)</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.presetChip, glucoseMin === 80 && glucoseMax === 160 && styles.presetChipActive]} onPress={() => { setGlucoseMin(80); setGlucoseMax(160); }}>
+                  <Text style={[styles.presetChipText, glucoseMin === 80 && glucoseMax === 160 && styles.presetChipTextActive]}>ゆるめ (80-160)</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.bottomSection}>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => { updateUser({ targetGlucoseRange: { min: glucoseMin, max: glucoseMax } }); handleNext(); }}>
+                <Text style={styles.primaryButtonText}>次へ</Text>
+                <ArrowRight size={20} color="#FFF" strokeWidth={2.5} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        );
+
+      case 4:
+        return (
+          <View style={styles.stepContent}>
+            <View style={styles.textSectionTop}>
+              <Text style={styles.headlineSmall}>
+                1日何歩から{'\n'}始めますか？
+              </Text>
+              <Text style={styles.subtextSmall}>
+                無理のない目標から始めましょう。{'\n'}あとから変更できます。
+              </Text>
+            </View>
+
+            <View style={styles.sliderCard}>
+              <View style={styles.stepCountDisplay}>
+                <Text style={styles.stepCountValue}>{stepTarget.toLocaleString()}</Text>
+                <Text style={styles.stepCountUnit}>歩 / 日</Text>
+              </View>
+
+              <View style={styles.stepperRow}>
+                <TouchableOpacity style={styles.stepperBtnLarge} onPress={() => setStepTarget(Math.max(1000, stepTarget - 500))}>
+                  <Text style={styles.stepperBtnLargeText}>−500</Text>
+                </TouchableOpacity>
+                <View style={styles.stepTargetBar}>
+                  <View style={[styles.stepTargetFill, { width: `${Math.min(100, (stepTarget / 12000) * 100)}%` }]} />
+                </View>
+                <TouchableOpacity style={styles.stepperBtnLarge} onPress={() => setStepTarget(Math.min(15000, stepTarget + 500))}>
+                  <Text style={styles.stepperBtnLargeText}>＋500</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.stepPresetRow}>
+                {[3000, 5000, 6000, 8000, 10000].map((v) => (
+                  <TouchableOpacity key={v} style={[styles.stepPresetChip, stepTarget === v && styles.stepPresetChipActive]} onPress={() => setStepTarget(v)}>
+                    <Text style={[styles.stepPresetChipText, stepTarget === v && styles.stepPresetChipTextActive]}>{(v / 1000).toFixed(0)}K</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.stepHintRow}>
+                <View style={styles.stepHintItem}>
+                  <Footprints size={14} color={LightColors.textMuted} />
+                  <Text style={styles.stepHintText}>3,000歩 ≈ 軽め</Text>
+                </View>
+                <View style={styles.stepHintItem}>
+                  <Footprints size={14} color={LightColors.primary} />
+                  <Text style={styles.stepHintText}>6,000歩 ≈ 標準</Text>
+                </View>
+                <View style={styles.stepHintItem}>
+                  <Footprints size={14} color={LightColors.orange} />
+                  <Text style={styles.stepHintText}>10,000歩 ≈ 積極的</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.bottomSection}>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => { updateUser({ targetSteps: stepTarget }); handleNext(); }}>
+                <Text style={styles.primaryButtonText}>次へ</Text>
+                <ArrowRight size={20} color="#FFF" strokeWidth={2.5} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        );
+
+      case 5:
+        return (
+          <ScrollView style={styles.scrollContent} contentContainerStyle={styles.stepContentPadded} showsVerticalScrollIndicator={false}>
+            <View style={styles.textSectionTop}>
+              <Text style={styles.headlineSmall}>
+                4つの機能で{'\n'}血糖管理を習慣に
+              </Text>
+              <Text style={styles.subtextSmall}>
+                タップして各画面の詳細をチェック
+              </Text>
+            </View>
+
+            <View style={styles.guideOverviewList}>
+              <TouchableOpacity style={styles.guideOverviewItem} onPress={() => animateTransition(6)} activeOpacity={0.7}>
+                <View style={[styles.guideOverviewIcon, { backgroundColor: LightColors.accentLight }]}>
+                  <Home size={22} color={LightColors.accent} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guideOverviewContent}>
+                  <Text style={styles.guideOverviewTitle}>ホーム</Text>
+                  <Text style={styles.guideOverviewDesc}>今日の血糖値・歩数・チャレンジを一目で確認</Text>
+                </View>
+                <ChevronRight size={18} color={LightColors.textMuted} />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.guideOverviewItem} onPress={() => animateTransition(7)} activeOpacity={0.7}>
+                <View style={[styles.guideOverviewIcon, { backgroundColor: LightColors.orangeLight }]}>
+                  <List size={22} color={LightColors.orange} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guideOverviewContent}>
+                  <Text style={styles.guideOverviewTitle}>タイムライン</Text>
+                  <Text style={styles.guideOverviewDesc}>食事と血糖変化を時系列で記録・確認</Text>
+                </View>
+                <ChevronRight size={18} color={LightColors.textMuted} />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.guideOverviewItem} onPress={() => animateTransition(8)} activeOpacity={0.7}>
+                <View style={[styles.guideOverviewIcon, { backgroundColor: LightColors.purpleLight }]}>
+                  <BarChart3 size={22} color={LightColors.purple} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guideOverviewContent}>
+                  <Text style={styles.guideOverviewTitle}>レポート</Text>
+                  <Text style={styles.guideOverviewDesc}>歩いた日と歩かなかった日の血糖比較を分析</Text>
+                </View>
+                <ChevronRight size={18} color={LightColors.textMuted} />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.guideOverviewItem} onPress={() => animateTransition(9)} activeOpacity={0.7}>
+                <View style={[styles.guideOverviewIcon, { backgroundColor: LightColors.goldLight }]}>
+                  <User size={22} color={LightColors.gold} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guideOverviewContent}>
+                  <Text style={styles.guideOverviewTitle}>プロフィール</Text>
+                  <Text style={styles.guideOverviewDesc}>レベル・バッジ・継続記録で成長を実感</Text>
+                </View>
+                <ChevronRight size={18} color={LightColors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.bottomSection}>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => animateTransition(10)}>
+                <Text style={styles.primaryButtonText}>次へ</Text>
+                <ArrowRight size={20} color="#FFF" strokeWidth={2.5} />
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        );
+
+      case 6:
+        return (
+          <ScrollView style={styles.scrollContent} contentContainerStyle={styles.stepContentPadded} showsVerticalScrollIndicator={false}>
+            <View style={styles.guideScreenHeader}>
+              <View style={[styles.guideScreenBadge, { backgroundColor: LightColors.accentLight }]}>
+                <Home size={16} color={LightColors.accent} strokeWidth={1.5} />
+                <Text style={[styles.guideScreenBadgeText, { color: LightColors.accent }]}>ホーム画面</Text>
+              </View>
+            </View>
+
+            <View style={styles.textSectionTop}>
+              <Text style={styles.headlineSmall}>
+                毎日の状態が{'\n'}ひと目でわかる
+              </Text>
+            </View>
+
+            <View style={styles.guidePointsList}>
+              <View style={styles.guidePointItem}>
+                <View style={[styles.guidePointIconBox, { backgroundColor: LightColors.accentLight }]}>
+                  <Activity size={16} color={LightColors.accent} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guidePointContent}>
+                  <Text style={styles.guidePointTitle}>リアルタイム血糖値</Text>
+                  <Text style={styles.guidePointDesc}>現在の血糖値とトレンドをひと目で確認</Text>
+                </View>
+              </View>
+              <View style={styles.guidePointItem}>
+                <View style={[styles.guidePointIconBox, { backgroundColor: LightColors.orangeLight }]}>
+                  <Target size={16} color={LightColors.orange} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guidePointContent}>
+                  <Text style={styles.guidePointTitle}>デイリーチャレンジ</Text>
+                  <Text style={styles.guidePointDesc}>毎日3つのミッションで習慣化をサポート</Text>
+                </View>
+              </View>
+              <View style={styles.guidePointItem}>
+                <View style={[styles.guidePointIconBox, { backgroundColor: LightColors.goldLight }]}>
+                  <Zap size={16} color={LightColors.gold} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guidePointContent}>
+                  <Text style={styles.guidePointTitle}>カスタマイズ可能</Text>
+                  <Text style={styles.guidePointDesc}>血糖値の目標範囲・歩数目標を自由に設定</Text>
+                </View>
+              </View>
+              <View style={styles.guidePointItem}>
+                <View style={[styles.guidePointIconBox, { backgroundColor: LightColors.purpleLight }]}>
+                  <Bell size={16} color={LightColors.purple} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guidePointContent}>
+                  <Text style={styles.guidePointTitle}>通知リマインド</Text>
+                  <Text style={styles.guidePointDesc}>食事記録や運動のタイミングをお知らせ</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.bottomSection}>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => animateTransition(5)}>
+                <ChevronLeft size={20} color="#FFF" strokeWidth={2.5} />
+                <Text style={styles.primaryButtonText}>戻る</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        );
+
+      case 7:
+        return (
+          <ScrollView style={styles.scrollContent} contentContainerStyle={styles.stepContentPadded} showsVerticalScrollIndicator={false}>
+            <View style={styles.guideScreenHeader}>
+              <View style={[styles.guideScreenBadge, { backgroundColor: LightColors.orangeLight }]}>
+                <List size={16} color={LightColors.orange} strokeWidth={1.5} />
+                <Text style={[styles.guideScreenBadgeText, { color: LightColors.orange }]}>タイムライン画面</Text>
+              </View>
+            </View>
+
+            <View style={styles.textSectionTop}>
+              <Text style={styles.headlineSmall}>
+                食事と血糖の{'\n'}関係が見える
+              </Text>
+            </View>
+
+            <View style={styles.guidePointsList}>
+              <View style={styles.guidePointItem}>
+                <View style={[styles.guidePointIconBox, { backgroundColor: LightColors.orangeLight }]}>
+                  <CameraIcon size={16} color={LightColors.orange} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guidePointContent}>
+                  <Text style={styles.guidePointTitle}>食事記録</Text>
+                  <Text style={styles.guidePointDesc}>写真で記録 → 食前食後の血糖値を自動追跡</Text>
+                </View>
+              </View>
+              <View style={styles.guideHighlightCard}>
+                <Star size={18} color={LightColors.gold} fill={LightColors.gold} />
+                <Text style={styles.guideHighlightText}>
+                  食後に歩いたことで血糖値の急上昇を抑えられた実績が自動でわかる
+                </Text>
+              </View>
+              <View style={styles.guidePointItem}>
+                <View style={[styles.guidePointIconBox, { backgroundColor: LightColors.accentLight }]}>
+                  <Clock size={16} color={LightColors.accent} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guidePointContent}>
+                  <Text style={styles.guidePointTitle}>時系列表示</Text>
+                  <Text style={styles.guidePointDesc}>「何を食べたか → どう変わったか」を確認</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.bottomSection}>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => animateTransition(5)}>
+                <ChevronLeft size={20} color="#FFF" strokeWidth={2.5} />
+                <Text style={styles.primaryButtonText}>戻る</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        );
+
+      case 8:
+        return (
+          <ScrollView style={styles.scrollContent} contentContainerStyle={styles.stepContentPadded} showsVerticalScrollIndicator={false}>
+            <View style={styles.guideScreenHeader}>
+              <View style={[styles.guideScreenBadge, { backgroundColor: LightColors.purpleLight }]}>
+                <BarChart3 size={16} color={LightColors.purple} strokeWidth={1.5} />
+                <Text style={[styles.guideScreenBadgeText, { color: LightColors.purple }]}>レポート画面</Text>
+              </View>
+            </View>
+
+            <View style={styles.textSectionTop}>
+              <Text style={styles.headlineSmall}>
+                週ごとの変化を{'\n'}把握
+              </Text>
+            </View>
+
+            <View style={styles.guidePointsList}>
+              <View style={styles.guidePointItem}>
+                <View style={[styles.guidePointIconBox, { backgroundColor: LightColors.accentLight }]}>
+                  <Footprints size={16} color={LightColors.accent} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guidePointContent}>
+                  <Text style={styles.guidePointTitle}>歩行比較分析</Text>
+                  <Text style={styles.guidePointDesc}>歩いた日 vs 歩かなかった日の血糖比較</Text>
+                </View>
+              </View>
+              <View style={styles.guidePointItem}>
+                <View style={[styles.guidePointIconBox, { backgroundColor: LightColors.purpleLight }]}>
+                  <Zap size={16} color={LightColors.purple} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guidePointContent}>
+                  <Text style={styles.guidePointTitle}>AIアドバイス</Text>
+                  <Text style={styles.guidePointDesc}>AI分析による食事・運動アドバイス</Text>
+                </View>
+              </View>
+              <View style={styles.guidePointItem}>
+                <View style={[styles.guidePointIconBox, { backgroundColor: LightColors.goldLight }]}>
+                  <TrendingDown size={16} color={LightColors.gold} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guidePointContent}>
+                  <Text style={styles.guidePointTitle}>長期トレンド</Text>
+                  <Text style={styles.guidePointDesc}>長期的な改善を実感できるグラフ表示</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.bottomSection}>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => animateTransition(5)}>
+                <ChevronLeft size={20} color="#FFF" strokeWidth={2.5} />
+                <Text style={styles.primaryButtonText}>戻る</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        );
+
+      case 9:
+        return (
+          <ScrollView style={styles.scrollContent} contentContainerStyle={styles.stepContentPadded} showsVerticalScrollIndicator={false}>
+            <View style={styles.guideScreenHeader}>
+              <View style={[styles.guideScreenBadge, { backgroundColor: LightColors.goldLight }]}>
+                <User size={16} color={LightColors.gold} strokeWidth={1.5} />
+                <Text style={[styles.guideScreenBadgeText, { color: LightColors.gold }]}>プロフィール画面</Text>
+              </View>
+            </View>
+
+            <View style={styles.textSectionTop}>
+              <Text style={styles.headlineSmall}>
+                成長を実感する
+              </Text>
+            </View>
+
+            <View style={styles.guidePointsList}>
+              <View style={styles.guidePointItem}>
+                <View style={[styles.guidePointIconBox, { backgroundColor: LightColors.accentLight }]}>
+                  <Star size={16} color={LightColors.accent} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guidePointContent}>
+                  <Text style={styles.guidePointTitle}>レベルアップ</Text>
+                  <Text style={styles.guidePointDesc}>経験値を貯めてレベルアップ、モチベ維持</Text>
+                </View>
+              </View>
+              <View style={styles.guidePointItem}>
+                <View style={[styles.guidePointIconBox, { backgroundColor: LightColors.goldLight }]}>
+                  <Trophy size={16} color={LightColors.gold} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guidePointContent}>
+                  <Text style={styles.guidePointTitle}>バッジコレクション</Text>
+                  <Text style={styles.guidePointDesc}>達成の証を集めてコンプリートを目指そう</Text>
+                </View>
+              </View>
+              <View style={styles.guidePointItem}>
+                <View style={[styles.guidePointIconBox, { backgroundColor: LightColors.orangeLight }]}>
+                  <BarChart3 size={16} color={LightColors.orange} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guidePointContent}>
+                  <Text style={styles.guidePointTitle}>累計データ</Text>
+                  <Text style={styles.guidePointDesc}>歩数・食事記録・血糖値抑制・継続日数</Text>
+                </View>
+              </View>
+              <View style={styles.guidePointItem}>
+                <View style={[styles.guidePointIconBox, { backgroundColor: LightColors.purpleLight }]}>
+                  <Flame size={16} color={LightColors.purple} strokeWidth={1.5} />
+                </View>
+                <View style={styles.guidePointContent}>
+                  <Text style={styles.guidePointTitle}>継続記録</Text>
+                  <Text style={styles.guidePointDesc}>連続達成日数で習慣化を可視化</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.bottomSection}>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => animateTransition(5)}>
+                <ChevronLeft size={20} color="#FFF" strokeWidth={2.5} />
+                <Text style={styles.primaryButtonText}>戻る</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        );
+
+      case 10:
+        return (
+          <ScrollView style={styles.scrollContent} contentContainerStyle={styles.stepContentPadded} showsVerticalScrollIndicator={false}>
             <View style={styles.textSectionTop}>
               <Text style={styles.headlineSmall}>
                 ゲーム感覚で{'\n'}続けられる仕組み
@@ -530,16 +1010,68 @@ export default function OnboardingScreen() {
               </View>
             </View>
 
+            <View style={styles.gameChartContainer}>
+              <Text style={styles.gameChartTitle}>今日の血糖値と運動</Text>
+              <Svg width={SCREEN_WIDTH - 80} height={140}>
+                <Defs>
+                  <LinearGradient id="stepsGradient" x1="0" y1="0" x2="0" y2="1">
+                    <Stop offset="0%" stopColor={LightColors.primary} stopOpacity="0.25" />
+                    <Stop offset="100%" stopColor={LightColors.primary} stopOpacity="0.02" />
+                  </LinearGradient>
+                </Defs>
+                {/* Steps area fill */}
+                <Path
+                  d={`M 10 120 Q 40 115, 60 108 Q 80 100, 100 105 Q 130 112, 160 100 Q 190 88, 210 95 Q 230 100, ${SCREEN_WIDTH - 90} 105 L ${SCREEN_WIDTH - 90} 130 L 10 130 Z`}
+                  fill="url(#stepsGradient)"
+                />
+                {/* Heart rate dashed line (purple) */}
+                <Path
+                  d={`M 10 85 Q 40 80, 70 70 Q 100 62, 130 75 Q 160 88, 190 65 Q 210 50, 230 60 Q 250 70, ${SCREEN_WIDTH - 90} 65`}
+                  stroke={LightColors.purple}
+                  strokeWidth="2"
+                  fill="none"
+                  strokeDasharray="6,4"
+                  strokeLinecap="round"
+                />
+                {/* Glucose line (orange) */}
+                <Path
+                  d={`M 10 70 Q 30 60, 55 45 Q 75 32, 95 40 Q 115 48, 135 55 Q 155 62, 175 50 Q 195 38, 215 30 Q 235 38, ${SCREEN_WIDTH - 90} 42`}
+                  stroke={LightColors.orange}
+                  strokeWidth="3"
+                  fill="none"
+                  strokeLinecap="round"
+                />
+                {/* Glucose dots */}
+                <Circle cx={55} cy={45} r="4" fill={LightColors.orange} />
+                <Circle cx={135} cy={55} r="4" fill={LightColors.orange} />
+                <Circle cx={215} cy={30} r="4" fill={LightColors.orange} />
+              </Svg>
+              <View style={styles.gameChartLegend}>
+                <View style={styles.gameChartLegendItem}>
+                  <View style={[styles.gameChartLegendDot, { backgroundColor: LightColors.orange }]} />
+                  <Text style={styles.gameChartLegendText}>血糖値</Text>
+                </View>
+                <View style={styles.gameChartLegendItem}>
+                  <View style={[styles.gameChartLegendDot, { backgroundColor: LightColors.primary }]} />
+                  <Text style={styles.gameChartLegendText}>歩数</Text>
+                </View>
+                <View style={styles.gameChartLegendItem}>
+                  <View style={[styles.gameChartLegendDot, { backgroundColor: LightColors.purple }]} />
+                  <Text style={styles.gameChartLegendText}>心拍</Text>
+                </View>
+              </View>
+            </View>
+
             <View style={styles.bottomSection}>
               <TouchableOpacity style={styles.primaryButton} onPress={handleNext}>
                 <Text style={styles.primaryButtonText}>次へ</Text>
                 <ArrowRight size={20} color="#FFF" strokeWidth={2.5} />
               </TouchableOpacity>
             </View>
-          </View>
+          </ScrollView>
         );
 
-      case 4:
+      case 11:
         return (
           <View style={styles.stepContent}>
             <View style={styles.textSectionTop}>
@@ -583,7 +1115,7 @@ export default function OnboardingScreen() {
           </View>
         );
 
-      case 5:
+      case 12:
         return (
           <View style={styles.stepContent}>
             <View style={styles.textSectionTop}>
@@ -654,7 +1186,7 @@ export default function OnboardingScreen() {
           </View>
         );
 
-      case 6:
+      case 13:
         return (
           <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
             <View style={styles.stepContentPadded}>
@@ -718,12 +1250,12 @@ export default function OnboardingScreen() {
           </ScrollView>
         );
 
-      case 7:
+      case 14:
         return (
           <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
             <View style={styles.stepContentPadded}>
               <Text style={styles.paywallHeadline}>
-                血糖ガーディアンに{'\n'}なりませんか？
+                血糖マネジメントを{'\n'}始めませんか？
               </Text>
 
               <View style={styles.benefitsCompact}>
@@ -1006,7 +1538,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
   },
   bottomSection: {
-    marginTop: 'auto',
+    paddingTop: 32,
     paddingBottom: 24,
   },
   bottomSectionReview: {
@@ -1581,5 +2113,388 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: LightColors.primary,
     fontWeight: '500',
+  },
+  // ===== Guide Slide Styles =====
+  guideOverviewList: {
+    gap: 14,
+    flex: 1,
+  },
+  guideOverviewItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 18,
+    backgroundColor: LightColors.cardBackground,
+    borderRadius: 18,
+    gap: 14,
+    borderWidth: 1,
+    borderColor: LightColors.border,
+  },
+  guideOverviewIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guideOverviewContent: {
+    flex: 1,
+  },
+  guideOverviewTitle: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: LightColors.text,
+    marginBottom: 4,
+  },
+  guideOverviewDesc: {
+    fontSize: 13,
+    color: LightColors.textSecondary,
+    lineHeight: 18,
+  },
+  guideScreenHeader: {
+    marginBottom: 8,
+  },
+  guideScreenBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 6,
+  },
+  guideScreenBadgeText: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+  },
+  guidePointsList: {
+    gap: 16,
+    flex: 1,
+  },
+  guidePointItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+  },
+  guidePointDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginTop: 6,
+  },
+  guidePointContent: {
+    flex: 1,
+  },
+  guidePointTitle: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: LightColors.text,
+    marginBottom: 4,
+  },
+  guidePointDesc: {
+    fontSize: 14,
+    color: LightColors.textSecondary,
+    lineHeight: 20,
+  },
+  guideHighlightCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: LightColors.goldLight,
+    borderRadius: 16,
+    padding: 18,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  guideHighlightText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: LightColors.text,
+    lineHeight: 22,
+  },
+  backButton: {
+    padding: 4,
+    marginRight: 8,
+  },
+  backButtonPlaceholder: {
+    width: 30,
+    marginRight: 8,
+  },
+  sliderCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    marginHorizontal: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  sliderSectionTitle: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: LightColors.text,
+    marginBottom: 16,
+    textAlign: 'center' as const,
+  },
+  rangeBarContainer: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    marginBottom: 20,
+    gap: 8,
+  },
+  rangeBarLabel: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: LightColors.textMuted,
+    width: 30,
+    textAlign: 'center' as const,
+  },
+  rangeBar: {
+    flex: 1,
+    height: 8,
+    backgroundColor: LightColors.border,
+    borderRadius: 4,
+    overflow: 'hidden' as const,
+    position: 'relative' as const,
+  },
+  rangeFill: {
+    position: 'absolute' as const,
+    top: 0,
+    height: 8,
+    backgroundColor: LightColors.primary,
+    borderRadius: 4,
+  },
+  stepperGridRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    gap: 12,
+  },
+  stepperCard: {
+    flex: 1,
+    alignItems: 'center' as const,
+    padding: 12,
+    backgroundColor: LightColors.backgroundSecondary,
+    borderRadius: 16,
+  },
+  stepperLabel: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: LightColors.textSecondary,
+    marginBottom: 8,
+  },
+  stepperRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 12,
+  },
+  stepperBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    borderWidth: 1,
+    borderColor: LightColors.border,
+  },
+  stepperBtnText: {
+    fontSize: 20,
+    fontWeight: '700' as const,
+    color: LightColors.primary,
+  },
+  stepperValue: {
+    fontSize: 28,
+    fontWeight: '800' as const,
+    color: LightColors.text,
+    minWidth: 50,
+    textAlign: 'center' as const,
+  },
+  stepperUnit: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: LightColors.textMuted,
+    marginTop: 4,
+  },
+  stepperDivider: {
+    width: 1,
+    height: 60,
+    backgroundColor: LightColors.border,
+  },
+  presetRow: {
+    flexDirection: 'row' as const,
+    justifyContent: 'center' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 20,
+  },
+  presetChip: {
+    flex: 1,
+    minWidth: 90,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: LightColors.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: LightColors.border,
+    alignItems: 'center' as const,
+  },
+  presetChipActive: {
+    backgroundColor: LightColors.primaryLight,
+    borderColor: LightColors.primary,
+  },
+  presetChipText: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: LightColors.textSecondary,
+    textAlign: 'center' as const,
+  },
+  presetChipTextActive: {
+    color: LightColors.primary,
+  },
+  stepCountDisplay: {
+    alignItems: 'center' as const,
+    marginBottom: 16,
+  },
+  stepCountValue: {
+    fontSize: 48,
+    fontWeight: '800' as const,
+    color: LightColors.primary,
+  },
+  stepCountUnit: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: LightColors.textMuted,
+    marginTop: 4,
+  },
+  stepperBtnLarge: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    borderWidth: 1.5,
+    borderColor: LightColors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  stepperBtnLargeText: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: LightColors.primary,
+  },
+  stepTargetBar: {
+    height: 10,
+    backgroundColor: LightColors.border,
+    borderRadius: 5,
+    overflow: 'hidden' as const,
+    marginVertical: 8,
+  },
+  stepTargetFill: {
+    height: 10,
+    backgroundColor: LightColors.primary,
+    borderRadius: 5,
+  },
+  stepPresetRow: {
+    flexDirection: 'row' as const,
+    justifyContent: 'center' as const,
+    gap: 10,
+    marginTop: 20,
+  },
+  stepPresetChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: LightColors.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: LightColors.border,
+  },
+  stepPresetChipActive: {
+    backgroundColor: LightColors.primaryLight,
+    borderColor: LightColors.primary,
+  },
+  stepPresetChipText: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: LightColors.textSecondary,
+  },
+  stepPresetChipTextActive: {
+    color: LightColors.primary,
+  },
+  stepHintRow: {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    marginTop: 16,
+    gap: 8,
+  },
+  stepHintItem: {
+    flex: 1,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    backgroundColor: LightColors.backgroundSecondary,
+    borderRadius: 12,
+    padding: 10,
+    gap: 6,
+  },
+  stepHintText: {
+    fontSize: 11,
+    fontWeight: '500' as const,
+    color: LightColors.textSecondary,
+    flex: 1,
+  },
+  guidePointIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    marginTop: 2,
+  },
+  gameChartContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    marginHorizontal: 4,
+    marginTop: 16,
+    alignItems: 'center' as const,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  gameChartTitle: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: LightColors.text,
+    marginBottom: 12,
+    alignSelf: 'flex-start' as const,
+  },
+  gameChartLegend: {
+    flexDirection: 'row' as const,
+    justifyContent: 'center' as const,
+    gap: 20,
+    marginTop: 8,
+  },
+  gameChartLegendItem: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+  },
+  gameChartLegendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  gameChartLegendText: {
+    fontSize: 12,
+    fontWeight: '500' as const,
+    color: LightColors.textSecondary,
   },
 });

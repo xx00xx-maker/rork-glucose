@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, FlatList, Dimensions, NativeScrollEvent, NativeSyntheticEvent, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { Footprints, Target, Camera } from 'lucide-react-native';
+import { Footprints, Target, Camera, BookOpen } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useApp } from '@/contexts/AppContext';
 import { DailyData } from '@/contexts/AppContext';
@@ -134,6 +134,15 @@ export default function HomeScreen() {
             coins={user.coins}
             streak={streaks.steps}
           />
+
+          <TouchableOpacity
+            style={styles.guideButton}
+            onPress={() => router.push('/usage-guide')}
+            activeOpacity={0.7}
+          >
+            <BookOpen size={16} color={Colors.green} strokeWidth={2} />
+            <Text style={styles.guideButtonText}>使い方ガイド</Text>
+          </TouchableOpacity>
 
           <CurrentGlucoseCard
             value={currentStatus.bloodGlucose.value}
@@ -335,5 +344,24 @@ const styles = StyleSheet.create({
   dotActive: {
     backgroundColor: Colors.green,
     width: 18,
+  },
+  guideButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    marginLeft: 16,
+    marginTop: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+  },
+  guideButtonText: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: Colors.green,
   },
 });

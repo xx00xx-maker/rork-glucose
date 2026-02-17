@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
-import { Flame, TrendingDown, Footprints, Lightbulb, Trophy, Calendar } from 'lucide-react-native';
+import { Flame, TrendingDown, Footprints, Lightbulb, Trophy, Calendar, Trash2 } from 'lucide-react-native';
 import Svg, { Path, Defs, LinearGradient, Stop } from 'react-native-svg';
 import Colors from '@/constants/colors';
 import { useApp } from '@/contexts/AppContext';
@@ -10,7 +10,7 @@ import { useApp } from '@/contexts/AppContext';
 const filters = ['今日', '今週', '今月'];
 
 export default function TimelineScreen() {
-  const { timelineData, streaks } = useApp();
+  const { timelineData, streaks, deleteTimelineEntry } = useApp();
   const [selectedFilter, setSelectedFilter] = useState('今日');
 
   const renderMiniChart = (before: number, after: number, steps: number) => {
@@ -45,7 +45,7 @@ export default function TimelineScreen() {
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <View style={styles.header}>
-          <Text style={styles.title}>タイムライン</Text>
+          <Text style={styles.title}>食事内容</Text>
           <View style={styles.streakBadge}>
             <Flame size={16} color={Colors.orange} fill={Colors.orange} />
             <Text style={styles.streakText}>{streaks.steps}日連続</Text>
@@ -137,10 +137,30 @@ export default function TimelineScreen() {
                   </View>
                 )}
 
-                <View style={styles.xpBadge}>
+                <View style={[styles.xpBadge, { marginRight: 8 }]}>
                   <Trophy size={14} color={Colors.gold} strokeWidth={2} />
                   <Text style={styles.xpText}>+{item.xpEarned} XP</Text>
                 </View>
+
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  onPress={() => {
+                    Alert.alert(
+                      '記録を削除',
+                      'この食事記録を削除してもよろしいですか？',
+                      [
+                        { text: 'キャンセル', style: 'cancel' },
+                        {
+                          text: '削除',
+                          style: 'destructive',
+                          onPress: () => deleteTimelineEntry(item.id)
+                        }
+                      ]
+                    );
+                  }}
+                >
+                  <Trash2 size={16} color={Colors.textMuted} />
+                </TouchableOpacity>
               </View>
             </View>
           );
@@ -228,6 +248,12 @@ const styles = StyleSheet.create({
   cardContent: {
     padding: 16,
   },
+  footerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+  },
   cardDateRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -309,5 +335,10 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: '600' as const,
+  },
+  deleteButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
   },
 });

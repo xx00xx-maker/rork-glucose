@@ -15,6 +15,8 @@ import {
 import { initHealthKit, fetchHealthKitData, fetchTodaySteps } from '@/app/services/report/healthkit';
 import { checkSubscriptionStatus } from '@/app/utils/revenueCat';
 import { calculateStreaks, incrementMealCount, getMealCountForDate, loadMealCounts, loadStreakData, updateCumulativeSteps, incrementSpikeReduced, loadSpikeReduced } from '@/app/services/streakCalculator';
+import { getPreMealGlucose, fetchPostMealGlucose, fetchPostMealSteps, generateInsight, analyzeMealTrend, calculateSpikeReduction } from '@/app/services/mealInsightService';
+import { scheduleExerciseReminder } from '@/app/services/notificationService';
 
 interface UserData {
   name: string;
@@ -66,7 +68,21 @@ export const [AppProvider, useApp] = createContextHook(() => {
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [showBadgeUnlock, setShowBadgeUnlock] = useState<Badge | null>(null);
   const [showMissionComplete, setShowMissionComplete] = useState<Challenge | null>(null);
-  const [timeline, setTimeline] = useState(timelineData);
+  const [timeline, setTimeline] = useState<any[]>([
+    {
+      id: 'sample_1',
+      date: new Date().toISOString().split('T')[0],
+      time: '12:30',
+      photo: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c',
+      mealType: 'lunch',
+      glucoseBefore: 98,
+      glucoseAfter: 135,
+      stepsAfter: 650,
+      spikeReduction: 15,
+      xpEarned: 30,
+      insight: '食後20分のウォーキングで血糖値上昇が緩やかになりました。ナイスアクション！',
+    }
+  ]);
 
   // Challenges and streaks - start with initial values, update from real data
   const [challenges, setChallenges] = useState<Challenge[]>([
@@ -80,6 +96,8 @@ export const [AppProvider, useApp] = createContextHook(() => {
     recording: 0,
     longestEver: 0,
   });
+
+
 
   // Real HealthKit data state - start with zeros, not mock data
   const [currentStatus, setCurrentStatus] = useState({
@@ -125,7 +143,24 @@ export const [AppProvider, useApp] = createContextHook(() => {
     queryFn: async () => {
       const stored = await AsyncStorage.getItem('userData');
       if (stored) {
-        return JSON.parse(stored) as UserData;
+        const parsed = JSON.parse(stored) as UserData;
+        // マイグレーション: 旧モックデータ（level:12, coins:1250）が保存されていたらリセット
+        // ユーザーのtargetGlucoseRange/targetSteps設定は保持する
+        const hasMockData = parsed.level === 12 && parsed.coins === 1250;
+        if (hasMockData) {
+          const migrated: UserData = {
+            ...defaultUserData,
+            plan: parsed.plan, // 購入情報は保持
+            targetGlucoseRange: parsed.targetGlucoseRange || defaultUserData.targetGlucoseRange,
+            targetSteps: parsed.targetSteps || defaultUserData.targetSteps,
+          };
+          await AsyncStorage.setItem('userData', JSON.stringify(migrated));
+          // バッジのモックデータもリセット
+          await AsyncStorage.removeItem('badge_unlocks');
+          console.log('[AppContext] Migration: reset mock userData & badges to real defaults');
+          return migrated;
+        }
+        return parsed;
       }
       return defaultUserData;
     },
@@ -141,7 +176,7 @@ export const [AppProvider, useApp] = createContextHook(() => {
         return defaultBadges.map(b => ({
           ...b,
           unlocked: unlockedIds.includes(b.id),
-          unlockedAt: unlockedIds.includes(b.id) ? (b.unlockedAt || new Date().toISOString().split('T')[0]) : undefined,
+          unlockedAt: unlockedIds.includes(b.id) ? ((b as any).unlockedAt || new Date().toISOString().split('T')[0]) : undefined,
         }));
       } catch {
         return defaultBadges;
@@ -573,7 +608,99 @@ export const [AppProvider, useApp] = createContextHook(() => {
     }
   }, [challenges, addXpMutate]);
 
-  const addTimelineEntry = useCallback((entry: {
+  // タイムラインエントリを更新する関数
+  const updateTimelineEntry = useCallback((entryId: string, updates: Partial<{
+    glucoseAfter: number;
+    stepsAfter: number;
+    spikeReduction: number;
+    insight: string;
+  }>) => {
+    setTimeline(prev => prev.map(entry =>
+      entry.id === entryId ? { ...entry, ...updates } : entry
+    ));
+  }, []);
+
+  // 食後の遅延データ取得をスケジュール
+  const schedulePostMealUpdates = useCallback((entryId: string, mealTime: Date, mealType: string, glucoseBefore: number) => {
+    const mealLabels: Record<string, string> = {
+      breakfast: '朝食',
+      lunch: '昼食',
+      dinner: '夕食',
+      snack: '間食',
+    };
+    const mealLabel = mealLabels[mealType] || '食事';
+
+    // 30分後: 食後歩数を取得
+    const THIRTY_MINUTES = 30 * 60 * 1000;
+    setTimeout(async () => {
+      try {
+        const steps = await fetchPostMealSteps(mealTime);
+        console.log(`[PostMeal] 30min update - steps: ${steps}`);
+
+        // 暫定インサイトを歩数ベースで更新
+        let insight = `${mealLabel}を記録しました`;
+        if (steps >= 500) {
+          insight = `食後${steps.toLocaleString()}歩！血糖値データを待っています...`;
+        } else if (steps > 0) {
+          insight = `食後${steps}歩。もう少し歩くと効果的です`;
+        }
+
+        setTimeline(prev => prev.map(entry =>
+          entry.id === entryId ? { ...entry, stepsAfter: steps, insight } : entry
+        ));
+      } catch (e) {
+        console.warn('[PostMeal] 30min update failed:', e);
+      }
+    }, THIRTY_MINUTES);
+
+    // 2時間後: 食後血糖値を取得 + 最終インサイト生成
+    const TWO_HOURS = 2 * 60 * 60 * 1000;
+    setTimeout(async () => {
+      try {
+        const [glucoseAfter, steps] = await Promise.all([
+          fetchPostMealGlucose(mealTime),
+          fetchPostMealSteps(mealTime),
+        ]);
+
+        const ga = glucoseAfter || 0;
+        const sa = steps || 0;
+
+        // 傾向分析
+        setTimeline(prev => {
+          const trendData = analyzeMealTrend(prev as any, mealType, entryId);
+          const insight = generateInsight(glucoseBefore, ga, sa, mealLabel, trendData);
+          const spikeReduction = calculateSpikeReduction(glucoseBefore, ga, sa);
+
+          // XP計算: ベース10 + 歩行ボーナス
+          let xpEarned = 10;
+          if (sa >= 500 && ga > 0 && glucoseBefore > 0 && (ga - glucoseBefore) <= 30) {
+            xpEarned = 30; // スパイク抑制成功ボーナス
+          } else if (sa >= 500) {
+            xpEarned = 20; // 歩行ボーナス
+          }
+
+          // スパイク抑制カウントを更新
+          if (ga > 0) {
+            incrementSpikeReduced(sa, glucoseBefore, ga).then(count => {
+              setCumulativeStats(p => ({ ...p, spikesReduced: count }));
+            });
+          }
+
+          return prev.map(entry =>
+            entry.id === entryId
+              ? { ...entry, glucoseAfter: ga || entry.glucoseAfter, stepsAfter: sa, spikeReduction, insight, xpEarned }
+              : entry
+          );
+        });
+
+        console.log(`[PostMeal] 2hr update - glucose: ${ga}, steps: ${sa}`);
+      } catch (e) {
+        console.warn('[PostMeal] 2hr update failed:', e);
+      }
+    }, TWO_HOURS);
+  }, []);
+
+  const addTimelineEntry = useCallback(async (entry: {
     photo: string;
     mealType?: 'breakfast' | 'lunch' | 'dinner' | 'snack';
     glucoseBefore?: number;
@@ -581,28 +708,50 @@ export const [AppProvider, useApp] = createContextHook(() => {
     stepsAfter?: number;
   }) => {
     const now = new Date();
-    const mealLabels = {
+    const mealLabels: Record<string, string> = {
       breakfast: '朝食',
       lunch: '昼食',
       dinner: '夕食',
       snack: '間食',
     };
-    const mealLabel = entry.mealType ? mealLabels[entry.mealType] : '食事';
+    const mealType = entry.mealType || 'lunch';
+    const mealLabel = mealLabels[mealType] || '食事';
+
+    // HealthKitから食前血糖値を取得（取れなければcurrentStatusの値を使用）
+    let glucoseBefore = entry.glucoseBefore || 0;
+    if (!glucoseBefore) {
+      const hkGlucose = await getPreMealGlucose();
+      if (hkGlucose) {
+        glucoseBefore = hkGlucose;
+      } else if (currentStatus.bloodGlucose.value > 0) {
+        glucoseBefore = currentStatus.bloodGlucose.value;
+      }
+    }
+
+    const entryId = `user_${Date.now()}`;
+    const initialInsight = glucoseBefore > 0
+      ? `${mealLabel}を記録（食前: ${glucoseBefore}mg/dL）。食後データを自動取得します`
+      : `${mealLabel}を記録しました。データが集まるとアドバイスが表示されます`;
 
     const newEntry = {
-      id: `user_${Date.now()}`,
+      id: entryId,
       date: now.toISOString().split('T')[0],
       time: `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`,
       photo: entry.photo,
-      mealType: entry.mealType || 'lunch',
-      glucoseBefore: entry.glucoseBefore || Math.floor(Math.random() * 30) + 90,
-      glucoseAfter: entry.glucoseAfter || Math.floor(Math.random() * 40) + 120,
+      mealType: mealType,
+      glucoseBefore: glucoseBefore,
+      glucoseAfter: entry.glucoseAfter || 0,
       stepsAfter: entry.stepsAfter || 0,
       spikeReduction: 0,
       xpEarned: 10,
-      insight: `${mealLabel}を記録しました`,
+      insight: initialInsight,
     };
     setTimeline(prev => [newEntry, ...prev]);
+
+    // 食後データの遅延取得をスケジュール（血糖値データがある場合のみ）
+    if (glucoseBefore > 0 && !entry.glucoseAfter) {
+      schedulePostMealUpdates(entryId, now, mealType, glucoseBefore);
+    }
 
     // Increment meal count and update status
     incrementMealCount().then(count => {
@@ -610,28 +759,45 @@ export const [AppProvider, useApp] = createContextHook(() => {
       setDailyData(prev => prev.map((d, i) => i === 0 ? { ...d, mealsRecorded: count } : d));
     });
 
-    // Check spike reduction: walked 500+ steps and glucose stayed low
-    const gb = entry.glucoseBefore || newEntry.glucoseBefore;
-    const ga = entry.glucoseAfter || newEntry.glucoseAfter;
-    const sa = entry.stepsAfter || 0;
-    incrementSpikeReduced(sa, gb, ga).then(count => {
-      setCumulativeStats(prev => ({ ...prev, spikesReduced: count }));
-    });
+    // 食後運動リマインダーをスケジュール
+    scheduleExerciseReminder().catch(e =>
+      console.warn('[AppContext] Exercise reminder scheduling failed:', e)
+    );
 
     // Check breakfast challenge (id: 1)
-    if (entry.mealType === 'breakfast') {
+    if (mealType === 'breakfast') {
       const hour = now.getHours();
       if (hour >= 5 && hour < 10) {
         setChallenges(prev => prev.map(c => c.id === 1 ? { ...c, completed: true } : c));
       }
     }
-  }, []);
+  }, [currentStatus.bloodGlucose.value, schedulePostMealUpdates]);
+
+  // Sync daily challenge with user target steps
+  useEffect(() => {
+    const userTarget = (userQuery.data || defaultUserData).targetSteps || 6000;
+    const currentSteps = currentStatus.todaySteps;
+
+    setChallenges(prev => prev.map(c => {
+      if (c.id === 3) {
+        return {
+          ...c,
+          title: `${userTarget.toLocaleString()}歩達成`,
+          description: `今日の目標歩数を達成`,
+          target: userTarget,
+          progress: currentSteps,
+          completed: currentSteps >= userTarget
+        };
+      }
+      return c;
+    }));
+  }, [userQuery.data?.targetSteps, currentStatus.todaySteps]);
 
   return {
     user: userQuery.data || defaultUserData,
     isLoading: userQuery.isLoading || onboardingQuery.isLoading,
     hasCompletedOnboarding,
-    completeOnboarding: () => completeOnboardingMutation.mutate(),
+    completeOnboarding: () => completeOnboardingMutation.mutateAsync(),
     updateUser: (updates: Partial<UserData>) => updateUserMutation.mutate(updates),
     addXp: (amount: number) => addXpMutation.mutate(amount),
 
@@ -647,7 +813,9 @@ export const [AppProvider, useApp] = createContextHook(() => {
     dailyData,
     weeklyReport: weeklyReportData,
     timelineData: timeline,
+    deleteTimelineEntry: (id: string) => setTimeline(prev => prev.filter(item => item.id !== id)),
     addTimelineEntry,
+    updateTimelineEntry,
     cumulativeStats,
 
     showLevelUp,

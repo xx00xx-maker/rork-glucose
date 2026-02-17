@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Modal, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Modal, Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Slider from '@react-native-community/slider';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import {
@@ -17,17 +18,70 @@ import {
   Info,
   ChevronRight,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  Clock
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useApp } from '@/contexts/AppContext';
 import { getOfferings, purchasePackage, restorePurchases, checkSubscriptionStatus } from '@/app/utils/revenueCat';
+import {
+  loadReminderSettings,
+  saveReminderSettings,
+  scheduleExerciseReminder,
+  rescheduleHabitReminder,
+  initNotifications,
+  ReminderSettings,
+} from '@/app/services/notificationService';
 
 export default function SettingsScreen() {
   const { user, updateUser } = useApp();
-  const [foodReminder, setFoodReminder] = useState(true);
-  const [challengeNotif, setChallengeNotif] = useState(true);
-  const [streakWarning, setStreakWarning] = useState(true);
+  const [exerciseReminder, setExerciseReminder] = useState(true);
+  const [habitReminder, setHabitReminder] = useState(false);
+  const [habitTime, setHabitTime] = useState(new Date(2026, 0, 1, 20, 0));
+  const [showTimePicker, setShowTimePicker] = useState(false);
+
+  // 起動時にリマインダー設定を読み込み
+  useEffect(() => {
+    (async () => {
+      await initNotifications();
+      const settings = await loadReminderSettings();
+      setExerciseReminder(settings.exerciseEnabled);
+      setHabitReminder(settings.habitEnabled);
+      setHabitTime(new Date(2026, 0, 1, settings.habitHour, settings.habitMinute));
+    })();
+  }, []);
+
+  const handleExerciseToggle = async (value: boolean) => {
+    setExerciseReminder(value);
+    const settings = await loadReminderSettings();
+    const updated: ReminderSettings = { ...settings, exerciseEnabled: value };
+    await saveReminderSettings(updated);
+  };
+
+  const handleHabitToggle = async (value: boolean) => {
+    setHabitReminder(value);
+    const settings = await loadReminderSettings();
+    const updated: ReminderSettings = { ...settings, habitEnabled: value };
+    await saveReminderSettings(updated);
+    await rescheduleHabitReminder();
+  };
+
+  const handleTimeChange = async (_event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowTimePicker(false);
+    }
+    if (selectedDate) {
+      setHabitTime(selectedDate);
+      const settings = await loadReminderSettings();
+      const updated: ReminderSettings = {
+        ...settings,
+        habitHour: selectedDate.getHours(),
+        habitMinute: selectedDate.getMinutes(),
+      };
+      await saveReminderSettings(updated);
+      await rescheduleHabitReminder();
+    }
+  };
 
   const [showGlucoseModal, setShowGlucoseModal] = useState(false);
   const [showStepsModal, setShowStepsModal] = useState(false);
@@ -149,52 +203,123 @@ export default function SettingsScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>通知</Text>
           <View style={styles.card}>
+            {/* 食後運動リマインダー */}
             <View style={styles.settingItem}>
               <View style={styles.settingLeft}>
                 <View style={[styles.settingIcon, { backgroundColor: `${Colors.blue}20` }]}>
                   <Bell size={18} color={Colors.blue} />
                 </View>
-                <Text style={styles.settingLabel}>食後リマインダー</Text>
-              </View>
-              <Switch
-                value={foodReminder}
-                onValueChange={setFoodReminder}
-                trackColor={{ false: Colors.border, true: Colors.green }}
-                thumbColor={Colors.text}
-              />
-            </View>
-            <View style={styles.divider} />
-            <View style={styles.settingItem}>
-              <View style={styles.settingLeft}>
-                <View style={[styles.settingIcon, { backgroundColor: `${Colors.gold}20` }]}>
-                  <Target size={18} color={Colors.gold} />
+                <View style={styles.settingInfo}>
+                  <Text style={styles.settingLabel}>食後運動リマインダー</Text>
                 </View>
-                <Text style={styles.settingLabel}>デイリーチャレンジ通知</Text>
               </View>
               <Switch
-                value={challengeNotif}
-                onValueChange={setChallengeNotif}
+                value={exerciseReminder}
+                onValueChange={handleExerciseToggle}
                 trackColor={{ false: Colors.border, true: Colors.green }}
                 thumbColor={Colors.text}
               />
             </View>
+            <Text style={styles.reminderHint}>
+              食事を記録した15分後に「歩きましょう」と通知します
+            </Text>
+
             <View style={styles.divider} />
+
+            {/* 習慣構築リマインダー */}
             <View style={styles.settingItem}>
               <View style={styles.settingLeft}>
                 <View style={[styles.settingIcon, { backgroundColor: `${Colors.orange}20` }]}>
-                  <Bell size={18} color={Colors.orange} />
+                  <Clock size={18} color={Colors.orange} />
                 </View>
-                <Text style={styles.settingLabel}>習慣キープの通知</Text>
+                <View style={styles.settingInfo}>
+                  <Text style={styles.settingLabel}>習慣構築リマインダー</Text>
+                </View>
               </View>
               <Switch
-                value={streakWarning}
-                onValueChange={setStreakWarning}
+                value={habitReminder}
+                onValueChange={handleHabitToggle}
                 trackColor={{ false: Colors.border, true: Colors.green }}
                 thumbColor={Colors.text}
               />
             </View>
+            <Text style={styles.reminderHint}>
+              毎日指定した時刻に記録のリマインドを通知します
+            </Text>
+            {habitReminder && (
+              <TouchableOpacity
+                style={styles.timePickerRow}
+                onPress={() => setShowTimePicker(true)}
+              >
+                <Text style={styles.timePickerLabel}>通知時刻</Text>
+                <View style={styles.timePickerValue}>
+                  <Text style={styles.timePickerText}>
+                    {habitTime.getHours().toString().padStart(2, '0')}:{habitTime.getMinutes().toString().padStart(2, '0')}
+                  </Text>
+                  <ChevronRight size={16} color={Colors.textMuted} />
+                </View>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
+
+        {/* 時刻ピッカー Modal */}
+        {showTimePicker && (
+          Platform.OS === 'ios' ? (
+            <Modal
+              visible={showTimePicker}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setShowTimePicker(false)}
+            >
+              <View style={styles.modalOverlay}>
+                <View style={[styles.modalContent, { backgroundColor: '#FFFFFF', padding: 0, overflow: 'hidden' }]}>
+                  {/* Header Bar */}
+                  <View style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: 16,
+                    borderBottomWidth: 1,
+                    borderBottomColor: Colors.border,
+                    backgroundColor: Colors.cardBackgroundLight
+                  }}>
+                    <TouchableOpacity onPress={() => setShowTimePicker(false)}>
+                      <Text style={{ fontSize: 16, color: Colors.textMuted }}>キャンセル</Text>
+                    </TouchableOpacity>
+                    <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.text }}>通知時刻</Text>
+                    <TouchableOpacity onPress={() => {
+                      setShowTimePicker(false);
+                      // Force save if needed, though onChange handles it
+                    }}>
+                      <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.green }}>完了</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={{ padding: 20 }}>
+                    <DateTimePicker
+                      value={habitTime}
+                      mode="time"
+                      display="spinner"
+                      onChange={handleTimeChange}
+                      locale="ja"
+                      themeVariant="light"
+                      textColor="#000000"
+                      style={{ height: 200 }}
+                    />
+                  </View>
+                </View>
+              </View>
+            </Modal>
+          ) : (
+            <DateTimePicker
+              value={habitTime}
+              mode="time"
+              display="default"
+              onChange={handleTimeChange}
+            />
+          )
+        )}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>アカウント</Text>
@@ -567,6 +692,40 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: Colors.border,
     marginLeft: 64,
+  },
+  reminderHint: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    marginTop: -4,
+    marginLeft: 60,
+  },
+  timePickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    marginLeft: 60,
+  },
+  timePickerLabel: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  timePickerValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.cardBackgroundLight,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 4,
+  },
+  timePickerText: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: Colors.text,
   },
   upgradeButton: {
     margin: 16,

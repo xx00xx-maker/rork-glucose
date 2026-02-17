@@ -24,7 +24,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="timeline"
         options={{
-          title: 'タイムライン',
+          title: '食事内容',
           tabBarIcon: ({ color, size }) => <Clock size={size} color={color} />,
         }}
       />

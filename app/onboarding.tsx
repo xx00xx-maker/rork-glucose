@@ -9,6 +9,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path, Defs, LinearGradient, Stop, Circle, Rect } from 'react-native-svg';
@@ -93,6 +94,7 @@ const reviews = [
     author: 'K.T',
     age: '48歳',
     rating: 5,
+    image: require('../assets/images/man_48yo.jpg'),
   },
   {
     id: 2,
@@ -100,6 +102,7 @@ const reviews = [
     author: 'M.S',
     age: '52歳',
     rating: 5,
+    image: require('../assets/images/woman_52yo.jpg'),
   },
   {
     id: 3,
@@ -107,6 +110,7 @@ const reviews = [
     author: 'Y.N',
     age: '45歳',
     rating: 5,
+    image: require('../assets/images/man_45yo.jpg'),
   },
 ];
 
@@ -1199,18 +1203,25 @@ export default function OnboardingScreen() {
               <View style={styles.reviewsGrid}>
                 {reviews.map((review) => (
                   <View key={review.id} style={styles.reviewCard}>
-                    <View style={styles.reviewQuoteIcon}>
-                      <Quote size={16} color={LightColors.primary} strokeWidth={1.5} />
+                    <View style={styles.reviewHeader}>
+                      <View style={styles.reviewStars}>
+                        {[1, 2, 3, 4, 5].map(i => (
+                          <Star key={i} size={14} color="#FBBF24" fill="#FBBF24" />
+                        ))}
+                      </View>
+                      <View style={styles.reviewQuoteIcon}>
+                        <Quote size={14} color={LightColors.primary} strokeWidth={2} />
+                      </View>
                     </View>
-                    <View style={styles.reviewStars}>
-                      {[1, 2, 3, 4, 5].map(i => (
-                        <Star key={i} size={12} color="#FBBF24" fill="#FBBF24" />
-                      ))}
-                    </View>
+
                     <Text style={styles.reviewText}>{review.text}</Text>
-                    <View style={styles.reviewAuthorRow}>
-                      <Text style={styles.reviewAuthor}>{review.author}</Text>
-                      <Text style={styles.reviewAge}>{review.age}</Text>
+
+                    <View style={styles.reviewFooter}>
+                      <View style={styles.reviewAuthorInfo}>
+                        <Text style={styles.reviewAuthor}>{review.author}</Text>
+                        <Text style={styles.reviewAge}>{review.age}</Text>
+                      </View>
+                      <Image source={review.image} style={styles.reviewImage} contentFit="cover" />
                     </View>
                   </View>
                 ))}
@@ -2496,5 +2507,108 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500' as const,
     color: LightColors.textSecondary,
+  },
+  // Reviews
+  reviewsGrid: {
+    gap: 16,
+    marginBottom: 24,
+  },
+  reviewCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  reviewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  reviewQuoteIcon: {
+    opacity: 0.5,
+  },
+  reviewStars: {
+    flexDirection: 'row',
+    gap: 2,
+  },
+  reviewText: {
+    fontSize: 15,
+    color: LightColors.text,
+    lineHeight: 22,
+    fontWeight: '500' as const,
+    marginBottom: 16,
+  },
+  reviewFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  reviewAuthorInfo: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+  },
+  reviewAuthor: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: LightColors.text,
+  },
+  reviewAge: {
+    fontSize: 12,
+    color: LightColors.textMuted,
+  },
+  reviewImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#F3F4F6',
+  },
+  statsRowCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: LightColors.cardBackground,
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 24,
+  },
+  statItemCompact: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statValueLarge: {
+    fontSize: 28,
+    fontWeight: '800' as const,
+    color: LightColors.text,
+    letterSpacing: -1,
+    marginBottom: 2,
+  },
+  statSuffix: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: LightColors.textSecondary,
+    marginBottom: 2,
+  },
+  statStars: {
+    flexDirection: 'row',
+    gap: 2,
+    marginBottom: 4,
+  },
+  statLabelSmall: {
+    fontSize: 11,
+    color: LightColors.textMuted,
+    fontWeight: '500' as const,
+  },
+  statDividerCompact: {
+    width: 1,
+    height: 40,
+    backgroundColor: LightColors.border,
   },
 });

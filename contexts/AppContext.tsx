@@ -14,7 +14,7 @@ import {
 } from '@/constants/mockData';
 import { initHealthKit, fetchHealthKitData, fetchTodaySteps } from '@/app/services/report/healthkit';
 import { checkSubscriptionStatus } from '@/app/utils/revenueCat';
-import { calculateStreaks, incrementMealCount, getMealCountForDate, loadMealCounts, loadStreakData, updateCumulativeSteps, incrementSpikeReduced, loadSpikeReduced } from '@/app/services/streakCalculator';
+import { calculateStreaks, incrementMealCount, decrementMealCount, getMealCountForDate, loadMealCounts, loadStreakData, updateCumulativeSteps, incrementSpikeReduced, loadSpikeReduced, loadCumulativeMeals } from '@/app/services/streakCalculator';
 import { getPreMealGlucose, fetchPostMealGlucose, fetchPostMealSteps, generateInsight, analyzeMealTrend, calculateSpikeReduction } from '@/app/services/mealInsightService';
 import { scheduleExerciseReminder } from '@/app/services/notificationService';
 
@@ -83,6 +83,13 @@ export const [AppProvider, useApp] = createContextHook(() => {
       insight: '食後20分のウォーキングで血糖値上昇が緩やかになりました。ナイスアクション！',
     }
   ]);
+
+  // timeline変更時にAsyncStorageへ保存（バックグラウンドタスクでも読めるように）
+  useEffect(() => {
+    AsyncStorage.setItem('timeline_data', JSON.stringify(timeline)).catch(e =>
+      console.warn('[AppContext] Failed to save timeline:', e)
+    );
+  }, [timeline]);
 
   // Challenges and streaks - start with initial values, update from real data
   const [challenges, setChallenges] = useState<Challenge[]>([
@@ -447,8 +454,17 @@ export const [AppProvider, useApp] = createContextHook(() => {
           setCumulativeStats(prev => ({
             ...prev,
             longestStreak: Math.max(streakResult.steps, streakResult.stability, streakResult.recording),
-            totalMeals: Object.values(mealCounts).reduce((sum, c) => sum + c, 0),
           }));
+          // Load persistent cumulative meal count (not affected by 90-day cleanup)
+          const cumulativeMealTotal = await loadCumulativeMeals();
+          // If cumulative counter is 0 but daily counts exist, migrate
+          const dailyTotal = Object.values(mealCounts).reduce((sum, c) => sum + c, 0);
+          if (cumulativeMealTotal === 0 && dailyTotal > 0) {
+            await AsyncStorage.setItem('cumulative_total_meals', String(dailyTotal));
+            setCumulativeStats(prev => ({ ...prev, totalMeals: dailyTotal }));
+          } else {
+            setCumulativeStats(prev => ({ ...prev, totalMeals: cumulativeMealTotal }));
+          }
           console.log('[AppContext] Streaks calculated:', streakResult);
         } catch (e) {
           console.warn('[AppContext] Streak calculation failed:', e);
@@ -703,6 +719,8 @@ export const [AppProvider, useApp] = createContextHook(() => {
   const addTimelineEntry = useCallback(async (entry: {
     photo: string;
     mealType?: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+    date?: string;
+    time?: string;
     glucoseBefore?: number;
     glucoseAfter?: number;
     stepsAfter?: number;
@@ -735,8 +753,8 @@ export const [AppProvider, useApp] = createContextHook(() => {
 
     const newEntry = {
       id: entryId,
-      date: now.toISOString().split('T')[0],
-      time: `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`,
+      date: entry.date || now.toISOString().split('T')[0],
+      time: entry.time || `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`,
       photo: entry.photo,
       mealType: mealType,
       glucoseBefore: glucoseBefore,
@@ -754,7 +772,9 @@ export const [AppProvider, useApp] = createContextHook(() => {
     }
 
     // Increment meal count and update status
-    incrementMealCount().then(count => {
+    // エントリの日付を YYYY-MM-DD 形式に正規化して渡す
+    const entryDateNormalized = newEntry.date.replace(/\//g, '-');
+    incrementMealCount(entryDateNormalized).then(count => {
       setCurrentStatus(prev => ({ ...prev, mealsRecorded: count }));
       setDailyData(prev => prev.map((d, i) => i === 0 ? { ...d, mealsRecorded: count } : d));
     });
@@ -812,8 +832,40 @@ export const [AppProvider, useApp] = createContextHook(() => {
     hourlyData,
     dailyData,
     weeklyReport: weeklyReportData,
-    timelineData: timeline,
-    deleteTimelineEntry: (id: string) => setTimeline(prev => prev.filter(item => item.id !== id)),
+    timelineData: [...timeline].sort((a, b) => {
+      // Normalize date format: YYYY/MM/DD → YYYY-MM-DD for proper Date parsing
+      const dateA = (a.date || '').replace(/\//g, '-');
+      const dateB = (b.date || '').replace(/\//g, '-');
+      const timeA = new Date(`${dateA}T${a.time || '00:00'}:00`).getTime();
+      const timeB = new Date(`${dateB}T${b.time || '00:00'}:00`).getTime();
+      return timeB - timeA; // newest first
+    }),
+    deleteTimelineEntry: useCallback(async (id: string) => {
+      // 削除対象エントリの日付を取得
+      setTimeline(prev => {
+        const entry = prev.find(item => item.id === id);
+        // 日付を YYYY-MM-DD 形式に正規化（YYYY/MM/DD → YYYY-MM-DD）
+        const rawDate: string = entry?.date || new Date().toISOString().split('T')[0];
+        const entryDate = rawDate.replace(/\//g, '-');
+
+        // AsyncStorageのmeal countをデクリメントし、関連stateを更新
+        decrementMealCount(entryDate).then(({ dateCount, totalCount }) => {
+          setCurrentStatus(s => {
+            const todayStr = new Date().toISOString().split('T')[0];
+            if (entryDate === todayStr) {
+              return { ...s, mealsRecorded: dateCount };
+            }
+            return s;
+          });
+          setDailyData(days => days.map(d =>
+            d.date === entryDate ? { ...d, mealsRecorded: dateCount } : d
+          ));
+          setCumulativeStats(s => ({ ...s, totalMeals: totalCount }));
+        });
+
+        return prev.filter(item => item.id !== id);
+      });
+    }, []),
     addTimelineEntry,
     updateTimelineEntry,
     cumulativeStats,

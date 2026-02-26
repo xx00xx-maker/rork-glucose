@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Platform, Alert, FlatList, ViewToken } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Platform, Alert, FlatList, ViewToken, ScrollView, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Camera as CameraIcon, X, Check, Clock, Image as ImageIcon } from 'lucide-react-native';
+import { Camera as CameraIcon, X, Check, Clock, Image as ImageIcon, CalendarDays } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import Colors from '@/constants/colors';
 import { useApp } from '@/contexts/AppContext';
 
@@ -162,6 +163,9 @@ export default function CameraScreen() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [selectedHourIndex, setSelectedHourIndex] = useState(0);
   const [selectedMinuteIndex, setSelectedMinuteIndex] = useState(0);
+  const [selectedMealType, setSelectedMealType] = useState<MealType>('lunch');
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const successAnim = useRef(new Animated.Value(0)).current;
   const xpAnim = useRef(new Animated.Value(0)).current;
 
@@ -170,13 +174,28 @@ export default function CameraScreen() {
     setSelectedHourIndex(now.getHours());
     const closestMin = Math.round(now.getMinutes() / 5) % 12;
     setSelectedMinuteIndex(closestMin);
+    setSelectedMealType(getMealTypeFromHour(now.getHours()));
+    setSelectedDate(now);
   }, []);
 
   const selectedHour = HOURS[selectedHourIndex];
   const selectedMinute = MINUTES_5[selectedMinuteIndex];
-  const mealType = getMealTypeFromHour(selectedHour);
-  const mealLabel = getMealLabel(mealType);
+  const mealLabel = getMealLabel(selectedMealType);
   const timeString = `${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')}`;
+  const dateString = `${selectedDate.getFullYear()}/${(selectedDate.getMonth() + 1).toString().padStart(2, '0')}/${selectedDate.getDate().toString().padStart(2, '0')}`;
+  const isToday = selectedDate.toDateString() === new Date().toDateString();
+
+  const onDateChange = (event: DateTimePickerEvent, date?: Date) => {
+    setShowDatePicker(Platform.OS === 'ios');
+    if (date) setSelectedDate(date);
+  };
+
+  // 時間が変わったら食事種類を自動更新（ユーザーが手動で変えていなければ）
+  const handleHourChange = (index: number) => {
+    setSelectedHourIndex(index);
+    // 時間帯に応じた食事種類を提案（変更可能）
+    setSelectedMealType(getMealTypeFromHour(HOURS[index]));
+  };
 
   const getCurrentTime = () => {
     const now = new Date();
@@ -200,7 +219,7 @@ export default function CameraScreen() {
 
   const confirmPhoto = () => {
     if (capturedImage) {
-      addTimelineEntry({ photo: capturedImage, mealType });
+      addTimelineEntry({ photo: capturedImage, mealType: selectedMealType, date: dateString, time: timeString });
     }
     setShowSuccess(true);
     Animated.sequence([
@@ -258,47 +277,119 @@ export default function CameraScreen() {
             <View style={{ width: 40 }} />
           </View>
         </SafeAreaView>
-        <View style={styles.previewContainer}>
-          <Image source={{ uri: capturedImage }} style={styles.previewImage} contentFit="cover" />
-        </View>
-
-        {/* Time Picker */}
-        <View style={styles.timePickerContainer}>
-          <View style={styles.timePickerHeader}>
-            <Clock size={16} color={Colors.green} strokeWidth={2} />
-            <Text style={styles.timePickerTitle}>食事の時刻を選択</Text>
+        <ScrollView
+          style={styles.previewScrollView}
+          contentContainerStyle={styles.previewScrollContent}
+          showsVerticalScrollIndicator={false}
+          bounces={true}
+        >
+          {/* Photo Preview */}
+          <View style={styles.previewContainer}>
+            <Image source={{ uri: capturedImage }} style={styles.previewImage} contentFit="cover" />
           </View>
 
-          <View style={styles.timePickerRow}>
-            <WheelPicker
-              data={HOURS}
-              selectedIndex={selectedHourIndex}
-              onSelect={setSelectedHourIndex}
-              formatItem={(v) => v.toString().padStart(2, '0')}
-            />
-            <Text style={styles.timeSeparator}>:</Text>
-            <WheelPicker
-              data={MINUTES_5}
-              selectedIndex={selectedMinuteIndex}
-              onSelect={setSelectedMinuteIndex}
-              formatItem={(v) => v.toString().padStart(2, '0')}
-            />
+          {/* Date Picker */}
+          <View style={styles.datePickerContainer}>
+            <Text style={styles.datePickerLabel}>日付</Text>
+            <TouchableOpacity style={styles.datePickerButton} onPress={() => setShowDatePicker(true)}>
+              <CalendarDays size={18} color={Colors.green} strokeWidth={2} />
+              <Text style={styles.datePickerButtonText}>
+                {isToday ? `今日（${dateString}）` : dateString}
+              </Text>
+            </TouchableOpacity>
           </View>
 
-          <View style={styles.mealTypeBadge}>
-            <Text style={styles.mealTypeBadgeText}>{mealLabel}（{timeString}）</Text>
-          </View>
-        </View>
+          {/* Date Picker Modal */}
+          <Modal
+            visible={showDatePicker}
+            transparent={true}
+            animationType="slide"
+            onRequestClose={() => setShowDatePicker(false)}
+          >
+            <View style={styles.dateModalOverlay}>
+              <View style={styles.dateModalContent}>
+                <Text style={styles.dateModalTitle}>日付を選択</Text>
+                <DateTimePicker
+                  value={selectedDate}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                  onChange={onDateChange}
+                  maximumDate={new Date()}
+                  locale="ja"
+                  themeVariant="light"
+                  textColor="#000000"
+                  style={Platform.OS === 'ios' ? { width: '100%' } : { width: '100%', height: 200 }}
+                />
+                <TouchableOpacity style={styles.dateConfirmBtn} onPress={() => setShowDatePicker(false)}>
+                  <Text style={styles.dateConfirmBtnText}>確定</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
 
-        <SafeAreaView style={styles.previewActions} edges={['bottom']}>
-          <TouchableOpacity style={styles.retakeButton} onPress={retakePhoto}>
-            <Text style={styles.retakeButtonText}>撮り直す</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.confirmButton} onPress={confirmPhoto}>
-            <Check size={24} color="#FFFFFF" />
-            <Text style={styles.confirmButtonText}>記録する</Text>
-          </TouchableOpacity>
-        </SafeAreaView>
+          {/* Meal Type Selector */}
+          <View style={styles.mealTypeSelectorContainer}>
+            <Text style={styles.mealTypeSelectorTitle}>食事の種類</Text>
+            <View style={styles.mealTypeRow}>
+              {(['breakfast', 'lunch', 'dinner', 'snack'] as MealType[]).map((type) => (
+                <TouchableOpacity
+                  key={type}
+                  style={[
+                    styles.mealTypeOption,
+                    selectedMealType === type && styles.mealTypeOptionActive,
+                  ]}
+                  onPress={() => setSelectedMealType(type)}
+                >
+                  <Text style={[
+                    styles.mealTypeOptionText,
+                    selectedMealType === type && styles.mealTypeOptionTextActive,
+                  ]}>
+                    {getMealLabel(type)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Time Picker */}
+          <View style={styles.timePickerContainer}>
+            <View style={styles.timePickerHeader}>
+              <Clock size={16} color={Colors.green} strokeWidth={2} />
+              <Text style={styles.timePickerTitle}>食事の時刻を選択</Text>
+            </View>
+
+            <View style={styles.timePickerRow}>
+              <WheelPicker
+                data={HOURS}
+                selectedIndex={selectedHourIndex}
+                onSelect={handleHourChange}
+                formatItem={(v) => v.toString().padStart(2, '0')}
+              />
+              <Text style={styles.timeSeparator}>:</Text>
+              <WheelPicker
+                data={MINUTES_5}
+                selectedIndex={selectedMinuteIndex}
+                onSelect={setSelectedMinuteIndex}
+                formatItem={(v) => v.toString().padStart(2, '0')}
+              />
+            </View>
+
+            <View style={styles.mealTypeBadge}>
+              <Text style={styles.mealTypeBadgeText}>{mealLabel}（{isToday ? '' : dateString + ' '}{timeString}）</Text>
+            </View>
+          </View>
+
+          {/* Action Buttons */}
+          <View style={styles.previewActionsInScroll}>
+            <TouchableOpacity style={styles.retakeButton} onPress={retakePhoto}>
+              <Text style={styles.retakeButtonText}>撮り直す</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.confirmButton} onPress={confirmPhoto}>
+              <Check size={24} color="#FFFFFF" />
+              <Text style={styles.confirmButtonText}>記録する</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </View>
     );
   }
@@ -389,8 +480,57 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   previewTitle: { fontSize: 18, fontWeight: '600' as const, color: Colors.text },
-  previewContainer: { flex: 1, margin: 16, marginBottom: 8, borderRadius: 20, overflow: 'hidden' },
-  previewImage: { flex: 1, width: '100%' },
+  previewScrollView: { flex: 1 },
+  previewScrollContent: { paddingBottom: 32 },
+  previewContainer: { height: 200, marginHorizontal: 16, marginBottom: 12, borderRadius: 20, overflow: 'hidden' },
+  previewImage: { width: '100%', height: '100%' },
+  // Date Picker
+  datePickerContainer: { paddingHorizontal: 16, paddingBottom: 12 },
+  datePickerLabel: { fontSize: 15, fontWeight: '700' as const, color: Colors.text, textAlign: 'center', marginBottom: 8 },
+  datePickerButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    backgroundColor: `${Colors.green}12`, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 20,
+    borderWidth: 1.5, borderColor: Colors.green,
+  },
+  datePickerButtonText: { fontSize: 15, fontWeight: '700' as const, color: Colors.text },
+  dateModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  dateModalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 32,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  dateModalTitle: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: Colors.text,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  dateConfirmBtn: {
+    backgroundColor: Colors.green, borderRadius: 10, paddingVertical: 12,
+    marginTop: 8, marginHorizontal: 16, alignItems: 'center',
+  },
+  dateConfirmBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' as const },
+  // Meal Type Selector
+  mealTypeSelectorContainer: { paddingHorizontal: 16, paddingBottom: 8 },
+  mealTypeSelectorTitle: { fontSize: 14, fontWeight: '600' as const, color: Colors.textSecondary, textAlign: 'center', marginBottom: 8 },
+  mealTypeRow: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
+  mealTypeOption: {
+    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: Colors.cardBackground, borderWidth: 1.5, borderColor: 'transparent',
+  },
+  mealTypeOptionActive: {
+    backgroundColor: `${Colors.green}15`, borderColor: Colors.green,
+  },
+  mealTypeOptionText: { fontSize: 14, fontWeight: '500' as const, color: Colors.textSecondary },
+  mealTypeOptionTextActive: { color: Colors.green, fontWeight: '700' as const },
   // Time Picker
   timePickerContainer: { paddingHorizontal: 16, paddingBottom: 8 },
   timePickerHeader: {
@@ -408,6 +548,7 @@ const styles = StyleSheet.create({
   },
   mealTypeBadgeText: { fontSize: 13, fontWeight: '600' as const, color: Colors.green },
   previewActions: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 12, gap: 12 },
+  previewActionsInScroll: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 16, gap: 12 },
   retakeButton: {
     flex: 1, backgroundColor: Colors.cardBackground, paddingVertical: 16, borderRadius: 12, alignItems: 'center',
   },

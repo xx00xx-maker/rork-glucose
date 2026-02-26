@@ -101,6 +101,27 @@ export default function TimelineScreen() {
                 </View>
               )}
 
+              {/* Delete Button - Top Right */}
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => {
+                  Alert.alert(
+                    '記録を削除',
+                    'この食事記録を削除してもよろしいですか？',
+                    [
+                      { text: 'キャンセル', style: 'cancel' },
+                      {
+                        text: '削除',
+                        style: 'destructive',
+                        onPress: () => deleteTimelineEntry(item.id)
+                      }
+                    ]
+                  );
+                }}
+              >
+                <Trash2 size={16} color="#FF3B30" />
+              </TouchableOpacity>
+
               <View style={styles.cardContent}>
                 <View style={styles.cardDateRow}>
                   <Calendar size={14} color={Colors.textSecondary} strokeWidth={1.5} />
@@ -141,26 +162,6 @@ export default function TimelineScreen() {
                   <Trophy size={14} color={Colors.gold} strokeWidth={2} />
                   <Text style={styles.xpText}>+{item.xpEarned} XP</Text>
                 </View>
-
-                <TouchableOpacity
-                  style={styles.deleteButton}
-                  onPress={() => {
-                    Alert.alert(
-                      '記録を削除',
-                      'この食事記録を削除してもよろしいですか？',
-                      [
-                        { text: 'キャンセル', style: 'cancel' },
-                        {
-                          text: '削除',
-                          style: 'destructive',
-                          onPress: () => deleteTimelineEntry(item.id)
-                        }
-                      ]
-                    );
-                  }}
-                >
-                  <Trash2 size={16} color={Colors.textMuted} />
-                </TouchableOpacity>
               </View>
             </View>
           );
@@ -337,8 +338,19 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
   },
   deleteButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
 });

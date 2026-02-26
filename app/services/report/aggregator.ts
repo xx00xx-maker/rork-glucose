@@ -2,28 +2,78 @@
 import { 
   HealthKitData, 
   AggregatedReportRequest, 
+  AdvancedAnalysisRequest,
   GlucoseSummary,
   ActivitySummary,
-  MealGlucoseCorrelation
+  MealType,
+  PersonalBaseline,
+  MedicationRegime,
 } from './types';
+import { runAllAnalyses, RunAllAnalysesInput } from './analyzers';
 
+/**
+ * 新しい分析パイプライン: AdvancedAnalysisRequest を構築
+ * 全分析モジュールを統合し、Edge Functionに送信する
+ */
+export function prepareAdvancedReport(
+  userId: string, 
+  period: { type: 'daily' | 'weekly' | 'monthly' | 'custom', startDate: string, endDate: string },
+  rawData: HealthKitData,
+  options?: {
+    manualMealRecords?: { timestamp: string; mealType: MealType }[];
+    existingBaseline?: PersonalBaseline | null;
+    currentRegime?: MedicationRegime;
+    previousMilestones?: string[];
+    firstDataDate?: string | null;
+    hasInitialImport?: boolean;
+  }
+): AdvancedAnalysisRequest {
+  const glucoseSummary = calculateGlucoseSummary(rawData.bloodGlucose);
+  const activitySummary = calculateActivitySummary(rawData.steps);
+  
+  const input: RunAllAnalysesInput = {
+    userId,
+    period,
+    rawData,
+    glucoseSummary,
+    activitySummary,
+    manualMealRecords: options?.manualMealRecords,
+    existingBaseline: options?.existingBaseline,
+    currentRegime: options?.currentRegime,
+    previousMilestones: options?.previousMilestones,
+    firstDataDate: options?.firstDataDate,
+    hasInitialImport: options?.hasInitialImport,
+  };
+  
+  return runAllAnalyses(input);
+}
+
+/**
+ * レガシー互換: 既存の AggregatedReportRequest を構築
+ * (段階的移行中に使用)
+ */
 export function prepareDataForUpload(
   userId: string, 
   period: { type: 'daily' | 'weekly' | 'monthly' | 'custom', startDate: string, endDate: string },
   rawData: HealthKitData
 ): AggregatedReportRequest {
-  
   const glucoseSummary = calculateGlucoseSummary(rawData.bloodGlucose);
   const activitySummary = calculateActivitySummary(rawData.steps);
-  // Scan for potential meal events using glucose spikes as a proxy since we don't have manual meal logs yet
-  const mealGlucoseCorrelation = analyzeMealGlucoseCorrelation(rawData.bloodGlucose, rawData.steps);
+  
+  // 食事推定（新ロジック使用）
+  const { estimateMeals } = require('./analyzers/mealEstimator');
+  const mealResult = estimateMeals(rawData.bloodGlucose, rawData.steps);
   
   return {
     userId,
     period,
     glucoseSummary,
     activitySummary,
-    mealGlucoseCorrelation
+    mealGlucoseCorrelation: {
+      mealEvents: mealResult.mealEvents,
+      mealRecordingRate: mealResult.mealRecordingRate,
+      mealRecordingLevel: mealResult.mealRecordingLevel,
+    }
   };
 }
 
@@ -40,10 +90,10 @@ function calculateGlucoseSummary(glucoseData: HealthKitData['bloodGlucose']): Gl
   // StdDev
   const stdDev = Math.sqrt(values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / values.length);
   
-  // TIR (70-140)
-  const inRange = values.filter(v => v >= 70 && v <= 140).length;
+  // TIR (70-180) — 設計書に基づき70-180に変更
+  const inRange = values.filter(v => v >= 70 && v <= 180).length;
   const belowRange = values.filter(v => v < 70).length;
-  const aboveRange = values.filter(v => v > 140).length;
+  const aboveRange = values.filter(v => v > 180).length;
   
   // Hourly Averages
   const hourlyMap = new Map<number, { sum: number; count: number }>();
@@ -75,8 +125,7 @@ function calculateGlucoseSummary(glucoseData: HealthKitData['bloodGlucose']): Gl
 
   const dailySummaries = Array.from(dailyMap.entries()).map(([date, vals]) => {
     const dayMean = vals.reduce((a, b) => a + b, 0) / vals.length;
-    const dayTir = vals.filter(v => v >= 70 && v <= 140).length / vals.length * 100;
-    // Simple spike count: values > 180
+    const dayTir = vals.filter(v => v >= 70 && v <= 180).length / vals.length * 100;
     const spikesCount = vals.filter(v => v > 180).length; 
     
     return {
@@ -115,21 +164,19 @@ function calculateActivitySummary(steps: HealthKitData['steps']): ActivitySummar
         if (!dailyMap.has(dateKey)) dailyMap.set(dateKey, { steps: 0 });
         dailyMap.get(dateKey)!.steps += s.count;
 
-        // Hourly (Assumes steps are broken down, if they are daily totals this won't work well but usually HK provides hourly)
+        // Hourly
         const current = hourlyMap.get(hour)!;
         current.sum += s.count;
-        current.count += 1; // Depending on granularity, this might interpret multiple samples in same hour
+        current.count += 1;
     });
 
     const dailySteps = Array.from(dailyMap.entries()).map(([date, data]) => ({
         date,
         totalSteps: data.steps,
-        flightsClimbed: 0, // Not implemented yet
-        activeMinutes: Math.round(data.steps / 100) // Rough estimation
+        flightsClimbed: 0,
+        activeMinutes: Math.round(data.steps / 100)
     })).sort((a, b) => a.date.localeCompare(b.date));
 
-    // For hourly patterns, we want average steps per hour across all days
-    // If the data is hourly samples
     const uniqueDays = new Set(steps.map(s => new Date(s.startTime).toISOString().split('T')[0])).size || 1;
     
     const hourlyStepPattern = Array.from(hourlyMap.entries()).map(([hour, { sum }]) => ({
@@ -140,88 +187,6 @@ function calculateActivitySummary(steps: HealthKitData['steps']): ActivitySummar
     return {
         dailySteps,
         hourlyStepPattern
-    };
-}
-
-function analyzeMealGlucoseCorrelation(glucose: HealthKitData['bloodGlucose'], steps: HealthKitData['steps']): MealGlucoseCorrelation {
-    // Heuristic: Detect "Meals" by finding rapid glucose rises
-    // A rise of > 20mg/dL over 30 mins
-    
-    // 1. Sort glucose by time
-    const sortedG = [...glucose].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    
-    const mealEvents = [];
-    const SPIKE_THRESHOLD = 20;
-    
-    // We iterate and look for start of spike
-    let i = 0;
-    while (i < sortedG.length - 1) {
-        const start = sortedG[i];
-        let peak = start;
-        let peakIdx = i;
-        
-        // Look ahead 60 mins for a peak
-        let j = i + 1;
-        while (j < sortedG.length) {
-            const current = sortedG[j];
-            const timeDiff = (new Date(current.timestamp).getTime() - new Date(start.timestamp).getTime()) / 60000;
-            
-            if (timeDiff > 90) break; // Stop looking after 90 mins
-            
-            if (current.value > peak.value) {
-                peak = current;
-                peakIdx = j;
-            }
-            j++;
-        }
-        
-        // Check if it's a significant spike
-        if (peak.value - start.value >= SPIKE_THRESHOLD) {
-             const riseTime = (new Date(peak.timestamp).getTime() - new Date(start.timestamp).getTime()) / 60000;
-             // Ensure rise is "rapid" enough (e.g., not just drift over 2 hours)
-             if (riseTime > 15 && riseTime < 90) {
-                 // Found a potential meal event at 'start'
-                 const mealTime = new Date(start.timestamp);
-                 
-                 // Find return to baseline
-                 let returnTime = 120; // Default cap
-                 for (let k = peakIdx + 1; k < sortedG.length; k++) {
-                     const current = sortedG[k];
-                     const tDiff = (new Date(current.timestamp).getTime() - mealTime.getTime()) / 60000;
-                     if (tDiff > 120) break;
-                     if (current.value <= start.value + 10) {
-                         returnTime = tDiff;
-                         break;
-                     }
-                 }
-
-                 // Calculate post-meal steps (60 mins after "meal")
-                 const postMealSteps = steps
-                    .filter(s => {
-                        const st = new Date(s.startTime).getTime();
-                        return st >= mealTime.getTime() && st <= mealTime.getTime() + 60 * 60000;
-                    })
-                    .reduce((sum, s) => sum + s.count, 0);
-
-                 mealEvents.push({
-                     mealTime: mealTime.toISOString(),
-                     preGlucose: start.value,
-                     peakGlucose: peak.value,
-                     peakTime: Math.round(riseTime),
-                     returnToBaseline: Math.round(returnTime),
-                     postMealSteps,
-                     spikeReduction: 0 // Cannot Estimate without predictive model
-                 });
-                 
-                 // Skip forward to avoid detecting same spike multiple times
-                 i = peakIdx; 
-             }
-        }
-        i++;
-    }
-
-    return {
-        mealEvents
     };
 }
 

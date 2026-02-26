@@ -55,6 +55,50 @@ export async function initDatabase() {
       period_type TEXT NOT NULL,
       report_json TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS personal_baseline (
+      id TEXT PRIMARY KEY,
+      regime_id TEXT,
+      fasting_glucose_mean REAL,
+      fasting_glucose_std REAL,
+      breakfast_spike_mean REAL,
+      lunch_spike_mean REAL,
+      dinner_spike_mean REAL,
+      walking_effect_mean REAL,
+      dawn_phenomenon_mean REAL,
+      hourly_baseline_json TEXT,
+      data_points INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS medication_regimes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      start_date INTEGER NOT NULL,
+      end_date INTEGER,
+      is_current INTEGER DEFAULT 1,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS estimated_meals (
+      id TEXT PRIMARY KEY,
+      timestamp INTEGER NOT NULL,
+      meal_type TEXT,
+      confidence TEXT,
+      pre_glucose REAL,
+      peak_glucose REAL,
+      spike_magnitude REAL,
+      is_user_confirmed INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS milestones (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      achieved_at INTEGER NOT NULL,
+      description TEXT
+    );
   `);
 }
 

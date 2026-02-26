@@ -42,6 +42,7 @@ import {
 import { useApp } from '@/contexts/AppContext';
 import { getOfferings, purchasePackage, restorePurchases } from './utils/revenueCat';
 import { initHealthKit } from './services/report/healthkit';
+import { runInitialSetup, isSetupComplete } from './services/report/initialSetup';
 import { PurchasesPackage } from 'react-native-purchases';
 import { Alert, ActivityIndicator } from 'react-native';
 
@@ -169,6 +170,8 @@ export default function OnboardingScreen() {
   const [stepTarget, setStepTarget] = useState(6000);
   const [packages, setPackages] = useState<{ monthly: PurchasesPackage | null; annual: PurchasesPackage | null }>({ monthly: null, annual: null });
   const [isPurchasing, setIsPurchasing] = useState(false);
+  const [setupProgress, setSetupProgress] = useState<{ stage: string; percent: number } | null>(null);
+  const [setupRunning, setSetupRunning] = useState(false);
 
   useEffect(() => {
     if (currentStep === 14) {
@@ -190,12 +193,38 @@ export default function OnboardingScreen() {
     try {
       const success = await initHealthKit();
       if (success) {
-        Alert.alert('接続完了', 'Apple Healthとの接続に成功しました。');
+        // HealthKit接続成功 → 初回セットアップ実行
+        const alreadyDone = await isSetupComplete();
+        if (!alreadyDone) {
+          setSetupRunning(true);
+          setSetupProgress({ stage: 'データ取得を開始しています...', percent: 0 });
+          const result = await runInitialSetup((stage, percent) => {
+            setSetupProgress({ stage, percent });
+          });
+          setSetupRunning(false);
+          setSetupProgress(null);
+
+          if (!result.hasCGM && result.dataPointCount === 0) {
+            Alert.alert(
+              '接続完了',
+              'Apple Healthとの接続に成功しました。\n\nCGM（持続血糖測定）のデータが見つかりませんでした。手動計測データでも利用できますが、CGMをお使いの場合はApple Healthの権限設定をご確認ください。'
+            );
+          } else {
+            Alert.alert(
+              'セットアップ完了',
+              `過去${result.daysOfData}日分のデータを取得しました。\n血糖値データ: ${result.dataPointCount}件\n\nあなた専用のベースラインを構築しました。`
+            );
+          }
+        } else {
+          Alert.alert('接続完了', 'Apple Healthとの接続に成功しました。');
+        }
       } else {
         Alert.alert('接続できませんでした', 'Apple Healthの権限設定から、血糖値と歩数のアクセスを許可してください。');
       }
     } catch (e) {
       console.error('[Onboarding] HealthKit init error:', e);
+      setSetupRunning(false);
+      setSetupProgress(null);
       Alert.alert('エラー', 'Apple Healthへの接続に失敗しました。');
     }
     handleNext();

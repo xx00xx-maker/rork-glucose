@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View,
     Text,
@@ -10,19 +10,22 @@ import {
     Alert,
     Dimensions,
     Modal,
-    Platform
+    Platform,
+    FlatList
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle, G } from 'react-native-svg';
 import { useRouter } from 'expo-router';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchHealthKitData } from '../../services/report/healthkit';
-import { prepareDataForUpload } from '../../services/report/aggregator';
-import { generateReport } from '../../services/report/api';
+import { prepareAdvancedReport } from '../../services/report/aggregator';
+import { generateAdvancedReport } from '../../services/report/api';
 import { GeneratedReport } from '../../services/report/types';
 import { getDB } from '../../services/report/localdb';
+import { getSavedBaseline, getSetupMetadata } from '../../services/report/initialSetup';
+import { MealType } from '../../services/report/types';
 
 const { width, height } = Dimensions.get('window');
 
@@ -35,6 +38,106 @@ const PERIOD_CONFIG: Record<PeriodType, { label: string; days: number; type: 'da
     'custom': { label: '指定', days: 0, type: 'custom' }
 };
 
+// Custom wheel picker constants
+const WHEEL_ITEM_HEIGHT = 44;
+const WHEEL_VISIBLE_ITEMS = 5;
+const WHEEL_HEIGHT = WHEEL_ITEM_HEIGHT * WHEEL_VISIBLE_ITEMS;
+
+function WheelColumn({ data, selectedIndex, onSelect, formatItem, columnWidth }: {
+    data: number[];
+    selectedIndex: number;
+    onSelect: (index: number) => void;
+    formatItem: (item: number) => string;
+    columnWidth: number;
+}) {
+    const flatListRef = useRef<FlatList>(null);
+    const hasInitialized = useRef(false);
+
+    useEffect(() => {
+        if (!hasInitialized.current && flatListRef.current) {
+            hasInitialized.current = true;
+            setTimeout(() => {
+                flatListRef.current?.scrollToOffset({
+                    offset: selectedIndex * WHEEL_ITEM_HEIGHT,
+                    animated: false,
+                });
+            }, 100);
+        }
+    }, []);
+
+    const handleMomentumScrollEnd = useCallback((event: any) => {
+        const y = event.nativeEvent.contentOffset.y;
+        const index = Math.round(y / WHEEL_ITEM_HEIGHT);
+        const clamped = Math.max(0, Math.min(index, data.length - 1));
+        if (clamped !== selectedIndex) {
+            onSelect(clamped);
+        }
+    }, [selectedIndex, onSelect, data.length]);
+
+    const paddingItems = Math.floor(WHEEL_VISIBLE_ITEMS / 2);
+
+    const renderItem = useCallback(({ item, index }: { item: number; index: number }) => {
+        const isSelected = index === selectedIndex;
+        return (
+            <View style={{ height: WHEEL_ITEM_HEIGHT, justifyContent: 'center', alignItems: 'center' }}>
+                <Text style={{
+                    fontSize: isSelected ? 20 : 16,
+                    fontWeight: isSelected ? '700' : '400',
+                    color: isSelected ? '#007AFF' : '#999',
+                }}>
+                    {formatItem(item)}
+                </Text>
+            </View>
+        );
+    }, [selectedIndex, formatItem]);
+
+    const getItemLayout = useCallback((_: any, index: number) => ({
+        length: WHEEL_ITEM_HEIGHT,
+        offset: WHEEL_ITEM_HEIGHT * index,
+        index,
+    }), []);
+
+    return (
+        <View style={{ height: WHEEL_HEIGHT, width: columnWidth, overflow: 'hidden', position: 'relative' }}>
+            <FlatList
+                ref={flatListRef}
+                data={data}
+                renderItem={renderItem}
+                keyExtractor={(_, i) => i.toString()}
+                getItemLayout={getItemLayout}
+                showsVerticalScrollIndicator={false}
+                snapToInterval={WHEEL_ITEM_HEIGHT}
+                decelerationRate="fast"
+                onMomentumScrollEnd={handleMomentumScrollEnd}
+                contentContainerStyle={{
+                    paddingTop: paddingItems * WHEEL_ITEM_HEIGHT,
+                    paddingBottom: paddingItems * WHEEL_ITEM_HEIGHT,
+                }}
+                initialScrollIndex={selectedIndex}
+                windowSize={7}
+            />
+            <View style={{
+                position: 'absolute',
+                top: WHEEL_ITEM_HEIGHT * Math.floor(WHEEL_VISIBLE_ITEMS / 2),
+                left: 0,
+                right: 0,
+                height: WHEEL_ITEM_HEIGHT,
+                borderTopWidth: 1,
+                borderBottomWidth: 1,
+                borderColor: '#007AFF',
+                backgroundColor: 'rgba(0,122,255,0.06)',
+            }} pointerEvents="none" />
+        </View>
+    );
+}
+
+// Generate year/month/day arrays
+const YEARS = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 4 + i);
+const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
+function getDaysInMonth(year: number, month: number): number {
+    return new Date(year, month, 0).getDate();
+}
+
 export default function ReportScreen() {
     const router = useRouter();
     const [reports, setReports] = useState<Record<string, GeneratedReport>>({});
@@ -46,6 +149,24 @@ export default function ReportScreen() {
     const [customStartDate, setCustomStartDate] = useState(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
     const [customEndDate, setCustomEndDate] = useState(new Date());
     const [datePickerMode, setDatePickerMode] = useState<'start' | 'end'>('start');
+
+    // Wheel picker state for year/month/day
+    const [pickerYear, setPickerYear] = useState(customStartDate.getFullYear());
+    const [pickerMonth, setPickerMonth] = useState(customStartDate.getMonth() + 1);
+    const [pickerDay, setPickerDay] = useState(customStartDate.getDate());
+    const [pickerDays, setPickerDays] = useState<number[]>(
+        Array.from({ length: getDaysInMonth(customStartDate.getFullYear(), customStartDate.getMonth() + 1) }, (_, i) => i + 1)
+    );
+
+    // Update days array when year/month changes
+    useEffect(() => {
+        const maxDay = getDaysInMonth(pickerYear, pickerMonth);
+        const newDays = Array.from({ length: maxDay }, (_, i) => i + 1);
+        setPickerDays(newDays);
+        if (pickerDay > maxDay) {
+            setPickerDay(maxDay);
+        }
+    }, [pickerYear, pickerMonth]);
 
     const currentReport = reports[selectedPeriod] || null;
 
@@ -84,12 +205,33 @@ export default function ReportScreen() {
     };
 
     // FIX: Always generate report when switching period tabs
+    const openDatePicker = (mode: 'start' | 'end') => {
+        setDatePickerMode(mode);
+        const date = mode === 'start' ? customStartDate : customEndDate;
+        setPickerYear(date.getFullYear());
+        setPickerMonth(date.getMonth() + 1);
+        setPickerDay(date.getDate());
+        setShowDatePicker(true);
+    };
+
+    const handlePickerConfirm = () => {
+        const selectedDate = new Date(pickerYear, pickerMonth - 1, pickerDay);
+        if (datePickerMode === 'start') {
+            setCustomStartDate(selectedDate);
+            setShowDatePicker(false);
+            // 自動的に終了日ピッカーを開く
+            setTimeout(() => openDatePicker('end'), 300);
+        } else {
+            setCustomEndDate(selectedDate);
+            setShowDatePicker(false);
+        }
+    };
+
     const handlePeriodChange = async (period: PeriodType) => {
         setSelectedPeriod(period);
 
         if (period === 'custom') {
-            setShowDatePicker(true);
-            setDatePickerMode('start');
+            // カスタム選択時はまだレポート生成しない（期間選択UIを表示するだけ）
             return;
         }
 
@@ -117,8 +259,35 @@ export default function ReportScreen() {
                 endDate: now.toISOString()
             };
 
-            const requestPayload = prepareDataForUpload(userId, periodObj, healthData);
-            const newReport = await generateReport(requestPayload);
+            // 食事記録をAsyncStorageから取得
+            let manualMealRecords: { timestamp: string; mealType: MealType }[] = [];
+            try {
+                const timelineJson = await AsyncStorage.getItem('timeline_data');
+                if (timelineJson) {
+                    const timeline = JSON.parse(timelineJson) as any[];
+                    manualMealRecords = timeline
+                        .filter((t: any) => t.date && t.time && t.mealType)
+                        .map((t: any) => ({
+                            timestamp: new Date(`${t.date}T${t.time}:00`).toISOString(),
+                            mealType: t.mealType,
+                        }));
+                }
+            } catch (e) {
+                console.warn('Failed to load timeline:', e);
+            }
+
+            // メタデータ・ベースライン取得
+            const { firstDataDate, hasInitialImport } = await getSetupMetadata();
+            const existingBaseline = await getSavedBaseline();
+
+            // Advanced形式でリクエスト構築
+            const requestPayload = prepareAdvancedReport(userId, periodObj, healthData, {
+                manualMealRecords,
+                existingBaseline,
+                firstDataDate,
+                hasInitialImport,
+            });
+            const newReport = await generateAdvancedReport(requestPayload);
 
             setReports(prev => ({
                 ...prev,
@@ -134,24 +303,7 @@ export default function ReportScreen() {
     };
 
     const handleCustomDateConfirm = () => {
-        setShowDatePicker(false);
         generateReportForPeriod('custom', customStartDate, customEndDate);
-    };
-
-    const handleDateChange = (event: any, date?: Date) => {
-        if (date) {
-            if (datePickerMode === 'start') {
-                setCustomStartDate(date);
-                if (Platform.OS === 'android') {
-                    setDatePickerMode('end');
-                }
-            } else {
-                setCustomEndDate(date);
-                if (Platform.OS === 'android') {
-                    handleCustomDateConfirm();
-                }
-            }
-        }
     };
 
     const handleGenerate = async () => {
@@ -181,7 +333,7 @@ export default function ReportScreen() {
     };
 
     const formatDate = (date: Date) => {
-        return `${date.getMonth() + 1}/${date.getDate()}`;
+        return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
     };
 
     const report = currentReport;
@@ -234,6 +386,31 @@ export default function ReportScreen() {
                     ))}
                 </View>
 
+                {/* Custom Period Selector - always shown when 'custom' is selected */}
+                {selectedPeriod === 'custom' && (
+                    <View style={styles.customPeriodContainer}>
+                        <Text style={styles.customPeriodLabel}>期間を選択</Text>
+                        <View style={styles.customPeriodRow}>
+                            <TouchableOpacity style={styles.customDateButton} onPress={() => openDatePicker('start')}>
+                                <Text style={styles.customDateHint}>開始日</Text>
+                                <Text style={styles.customDateValue}>{formatDate(customStartDate)}</Text>
+                            </TouchableOpacity>
+                            <Text style={styles.customDateTilde}>〜</Text>
+                            <TouchableOpacity style={styles.customDateButton} onPress={() => openDatePicker('end')}>
+                                <Text style={styles.customDateHint}>終了日</Text>
+                                <Text style={styles.customDateValue}>{formatDate(customEndDate)}</Text>
+                            </TouchableOpacity>
+                        </View>
+                        <TouchableOpacity
+                            style={styles.customGenerateBtn}
+                            onPress={handleCustomDateConfirm}
+                            disabled={loading}
+                        >
+                            <Text style={styles.customGenerateBtnText}>この期間でレポート作成</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
                 {/* Loading State */}
                 {loading && (
                     <View style={styles.loadingContainer}>
@@ -247,19 +424,19 @@ export default function ReportScreen() {
                     <View style={styles.emptyState}>
                         <Ionicons name="analytics-outline" size={64} color="#CCC" />
                         <Text style={styles.emptyTitle}>
-                            {selectedPeriod === 'custom' ? 'カスタム期間を選択' : `${PERIOD_CONFIG[selectedPeriod].label}のレポートがありません`}
+                            {selectedPeriod === 'custom' ? '上の期間を選択してレポートを作成' : `${PERIOD_CONFIG[selectedPeriod].label}のレポートがありません`}
                         </Text>
                         <Text style={styles.emptyDesc}>
                             血糖値データからレポートを作成しましょう。
                         </Text>
-                        <TouchableOpacity
-                            style={styles.generateButton}
-                            onPress={() => selectedPeriod === 'custom' ? setShowDatePicker(true) : handleGenerate()}
-                        >
-                            <Text style={styles.generateButtonText}>
-                                {selectedPeriod === 'custom' ? '期間を選択' : 'レポートを作成'}
-                            </Text>
-                        </TouchableOpacity>
+                        {selectedPeriod !== 'custom' && (
+                            <TouchableOpacity
+                                style={styles.generateButton}
+                                onPress={handleGenerate}
+                            >
+                                <Text style={styles.generateButtonText}>レポートを作成</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 )}
 
@@ -297,7 +474,6 @@ export default function ReportScreen() {
 
                         {/* Main Insight */}
                         <View style={styles.insightBox}>
-                            <Text style={styles.insightEmoji}>{report.insights.mainInsight.emoji}</Text>
                             <View style={styles.insightContent}>
                                 <Text style={styles.insightTitle}>{report.insights.mainInsight.title}</Text>
                                 <Text style={styles.insightDesc}>{report.insights.mainInsight.description}</Text>
@@ -349,6 +525,124 @@ export default function ReportScreen() {
                             />
                         )}
 
+                        {/* Weekly Detail Sections */}
+                        {report.insights.weekly && (
+                            <>
+                                <Text style={styles.sectionTitle}>週間サマリー</Text>
+                                <View style={styles.weeklySummaryBox}>
+                                    <Text style={styles.weeklySummaryText}>{report.insights.weekly.weekSummary}</Text>
+                                </View>
+
+                                {/* Meal Analysis */}
+                                <View style={[styles.card, { borderLeftColor: '#FF9800', borderLeftWidth: 4 }]}>
+                                    <View style={styles.cardHeader}>
+                                        <Ionicons name="restaurant" size={20} color="#FF9800" />
+                                        <Text style={[styles.cardTitle, { color: '#FF9800' }]}>食事の傾向分析</Text>
+                                    </View>
+                                    <Text style={styles.cardDesc}>{report.insights.weekly.mealAnalysis.spikeTrends}</Text>
+                                    <View style={styles.recBox}>
+                                        <Text style={styles.recText}>{report.insights.weekly.mealAnalysis.timeZoneImpact}</Text>
+                                    </View>
+                                </View>
+
+                                {/* Exercise Analysis */}
+                                <View style={[styles.card, { borderLeftColor: '#4CAF50', borderLeftWidth: 4 }]}>
+                                    <View style={styles.cardHeader}>
+                                        <Ionicons name="walk" size={20} color="#4CAF50" />
+                                        <Text style={[styles.cardTitle, { color: '#4CAF50' }]}>運動効果の分析</Text>
+                                    </View>
+                                    <Text style={styles.cardDesc}>{report.insights.weekly.exerciseAnalysis.walkingEffect}</Text>
+                                    <View style={styles.recBox}>
+                                        <Text style={styles.recText}>{report.insights.weekly.exerciseAnalysis.stepsTrend}</Text>
+                                    </View>
+                                </View>
+
+                                {/* Rhythm Analysis */}
+                                <View style={[styles.card, { borderLeftColor: '#3F51B5', borderLeftWidth: 4 }]}>
+                                    <View style={styles.cardHeader}>
+                                        <Ionicons name="time" size={20} color="#3F51B5" />
+                                        <Text style={[styles.cardTitle, { color: '#3F51B5' }]}>生活リズム分析</Text>
+                                    </View>
+                                    <View style={styles.rhythmScoreRow}>
+                                        <Text style={styles.rhythmScoreLabel}>リズムスコア</Text>
+                                        <Text style={styles.rhythmScoreValue}>{report.insights.weekly.rhythmAnalysis.rhythmScore}</Text>
+                                        <Text style={styles.rhythmScoreUnit}>/100</Text>
+                                    </View>
+                                    <Text style={styles.cardDesc}>{report.insights.weekly.rhythmAnalysis.circadianFindings}</Text>
+                                </View>
+
+                                {/* Glucose Stability */}
+                                <View style={[styles.card, { borderLeftColor: '#00BCD4', borderLeftWidth: 4 }]}>
+                                    <View style={styles.cardHeader}>
+                                        <Ionicons name="analytics" size={20} color="#00BCD4" />
+                                        <Text style={[styles.cardTitle, { color: '#00BCD4' }]}>血糖安定性</Text>
+                                    </View>
+                                    <Text style={styles.cardDesc}>{report.insights.weekly.glucoseStability}</Text>
+                                </View>
+
+                                {/* Stress Comment */}
+                                {report.insights.weekly.stressComment && (
+                                    <View style={[styles.card, { borderLeftColor: '#9C27B0', borderLeftWidth: 4 }]}>
+                                        <View style={styles.cardHeader}>
+                                            <Ionicons name="pulse" size={20} color="#9C27B0" />
+                                            <Text style={[styles.cardTitle, { color: '#9C27B0' }]}>ストレスの影響</Text>
+                                        </View>
+                                        <Text style={styles.cardDesc}>{report.insights.weekly.stressComment}</Text>
+                                    </View>
+                                )}
+
+                                {/* Discovered Patterns */}
+                                {report.insights.weekly.discoveredPatterns && report.insights.weekly.discoveredPatterns.length > 0 && (
+                                    <View style={styles.patternBox}>
+                                        <Text style={styles.patternTitle}>発見されたパターン</Text>
+                                        {report.insights.weekly.discoveredPatterns.map((p: string, idx: number) => (
+                                            <View key={idx} style={styles.patternItem}>
+                                                <Ionicons name="flash" size={14} color="#FF9800" />
+                                                <Text style={styles.patternText}>{p}</Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
+
+                                {/* Growth Progress */}
+                                <View style={styles.growthBox}>
+                                    <Text style={styles.growthTitle}>成長の記録</Text>
+                                    <Text style={styles.growthText}>{report.insights.weekly.growthProgress}</Text>
+                                    {report.insights.weekly.newMilestones && report.insights.weekly.newMilestones.length > 0 && (
+                                        <View style={styles.milestoneList}>
+                                            {report.insights.weekly.newMilestones.map((m: string, idx: number) => (
+                                                <View key={idx} style={styles.milestoneItem}>
+                                                    <Ionicons name="trophy" size={16} color="#FF9800" />
+                                                    <Text style={styles.milestoneText}>{m}</Text>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    )}
+                                </View>
+
+                                {/* Weekly Goals */}
+                                <View style={styles.goalsBox}>
+                                    <Text style={styles.goalsTitle}>来週の目標</Text>
+                                    {report.insights.weekly.weeklyGoals.map((goal: string, idx: number) => (
+                                        <View key={idx} style={styles.goalItem}>
+                                            <View style={styles.goalNumber}>
+                                                <Text style={styles.goalNumberText}>{idx + 1}</Text>
+                                            </View>
+                                            <Text style={styles.goalText}>{goal}</Text>
+                                        </View>
+                                    ))}
+                                </View>
+
+                                {/* Medical Alert */}
+                                {report.insights.weekly.medicalAlert && (
+                                    <View style={styles.alertBox}>
+                                        <Ionicons name="warning" size={20} color="#D32F2F" />
+                                        <Text style={styles.alertText}>{report.insights.weekly.medicalAlert}</Text>
+                                    </View>
+                                )}
+                            </>
+                        )}
+
                         {/* Weekly Tip */}
                         <View style={styles.tipBox}>
                             <Ionicons name="bulb-outline" size={24} color="#FB8C00" />
@@ -357,7 +651,7 @@ export default function ReportScreen() {
 
                         {/* Encouragement */}
                         <View style={styles.encouragementBox}>
-                            <Text style={styles.encouragementText}>🎉 {report.insights.encouragement}</Text>
+                            <Text style={styles.encouragementText}>{report.insights.encouragement}</Text>
                         </View>
 
                         {/* Back Button */}
@@ -372,20 +666,36 @@ export default function ReportScreen() {
                 )}
             </ScrollView>
 
-            {/* Custom Date Picker Modal */}
-            <Modal visible={showDatePicker} transparent animationType="fade">
+            {/* Custom Date Wheel Picker Modal */}
+            <Modal visible={showDatePicker} transparent animationType="slide">
                 <View style={styles.modalOverlay}>
                     <View style={styles.datePickerModal}>
                         <Text style={styles.datePickerTitle}>
                             {datePickerMode === 'start' ? '開始日を選択' : '終了日を選択'}
                         </Text>
-                        <DateTimePicker
-                            value={datePickerMode === 'start' ? customStartDate : customEndDate}
-                            mode="date"
-                            display="spinner"
-                            onChange={handleDateChange}
-                            maximumDate={new Date()}
-                        />
+                        <View style={styles.wheelRow}>
+                            <WheelColumn
+                                data={YEARS}
+                                selectedIndex={YEARS.indexOf(pickerYear)}
+                                onSelect={(i) => setPickerYear(YEARS[i])}
+                                formatItem={(v) => `${v}年`}
+                                columnWidth={100}
+                            />
+                            <WheelColumn
+                                data={MONTHS}
+                                selectedIndex={pickerMonth - 1}
+                                onSelect={(i) => setPickerMonth(MONTHS[i])}
+                                formatItem={(v) => `${v}月`}
+                                columnWidth={80}
+                            />
+                            <WheelColumn
+                                data={pickerDays}
+                                selectedIndex={Math.min(pickerDay - 1, pickerDays.length - 1)}
+                                onSelect={(i) => setPickerDay(pickerDays[i])}
+                                formatItem={(v) => `${v}日`}
+                                columnWidth={80}
+                            />
+                        </View>
                         <View style={styles.datePickerButtons}>
                             <TouchableOpacity
                                 style={styles.datePickerCancel}
@@ -393,21 +703,12 @@ export default function ReportScreen() {
                             >
                                 <Text style={styles.datePickerCancelText}>キャンセル</Text>
                             </TouchableOpacity>
-                            {datePickerMode === 'start' ? (
-                                <TouchableOpacity
-                                    style={styles.datePickerConfirm}
-                                    onPress={() => setDatePickerMode('end')}
-                                >
-                                    <Text style={styles.datePickerConfirmText}>次へ</Text>
-                                </TouchableOpacity>
-                            ) : (
-                                <TouchableOpacity
-                                    style={styles.datePickerConfirm}
-                                    onPress={handleCustomDateConfirm}
-                                >
-                                    <Text style={styles.datePickerConfirmText}>確定</Text>
-                                </TouchableOpacity>
-                            )}
+                            <TouchableOpacity
+                                style={styles.datePickerConfirm}
+                                onPress={handlePickerConfirm}
+                            >
+                                <Text style={styles.datePickerConfirmText}>確定</Text>
+                            </TouchableOpacity>
                         </View>
                     </View>
                 </View>
@@ -611,9 +912,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 12,
     },
-    insightEmoji: {
-        fontSize: 32,
-    },
     insightContent: {
         flex: 1,
     },
@@ -736,44 +1034,250 @@ const styles = StyleSheet.create({
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.5)',
-        justifyContent: 'center',
-        alignItems: 'center',
+        justifyContent: 'flex-end',
     },
     datePickerModal: {
         backgroundColor: '#fff',
-        borderRadius: 20,
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
         padding: 24,
-        width: width - 48,
+        paddingBottom: 40,
         alignItems: 'center',
     },
     datePickerTitle: {
         fontSize: 18,
         fontWeight: 'bold',
         marginBottom: 16,
+        color: '#333',
+    },
+    wheelRow: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 4,
     },
     datePickerButtons: {
         flexDirection: 'row',
-        marginTop: 16,
+        marginTop: 20,
         gap: 12,
+        width: '100%',
     },
     datePickerCancel: {
-        paddingVertical: 12,
-        paddingHorizontal: 24,
-        borderRadius: 8,
+        flex: 1,
+        paddingVertical: 14,
+        borderRadius: 12,
         backgroundColor: '#E0E0E0',
+        alignItems: 'center',
     },
     datePickerCancelText: {
         color: '#666',
         fontWeight: '600',
+        fontSize: 16,
     },
     datePickerConfirm: {
-        paddingVertical: 12,
-        paddingHorizontal: 24,
-        borderRadius: 8,
+        flex: 1,
+        paddingVertical: 14,
+        borderRadius: 12,
         backgroundColor: '#007AFF',
+        alignItems: 'center',
     },
     datePickerConfirmText: {
         color: '#fff',
         fontWeight: '600',
+        fontSize: 16,
+    },
+    customPeriodContainer: {
+        backgroundColor: '#F0F4FF',
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 16,
+    },
+    customPeriodLabel: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#666',
+        marginBottom: 12,
+    },
+    customPeriodRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        marginBottom: 16,
+    },
+    customDateButton: {
+        flex: 1,
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        alignItems: 'center',
+        borderWidth: 1.5,
+        borderColor: '#007AFF',
+    },
+    customDateHint: {
+        fontSize: 12,
+        color: '#666',
+        marginBottom: 4,
+    },
+    customDateValue: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#007AFF',
+    },
+    customDateTilde: {
+        fontSize: 18,
+        color: '#999',
+        fontWeight: '600',
+    },
+    customGenerateBtn: {
+        backgroundColor: '#007AFF',
+        borderRadius: 12,
+        paddingVertical: 14,
+        alignItems: 'center',
+    },
+    customGenerateBtnText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    // Weekly Detail Styles
+    weeklySummaryBox: {
+        backgroundColor: '#fff',
+        padding: 16,
+        borderRadius: 16,
+        marginBottom: 16,
+    },
+    weeklySummaryText: {
+        fontSize: 15,
+        color: '#333',
+        lineHeight: 24,
+    },
+    rhythmScoreRow: {
+        flexDirection: 'row' as const,
+        alignItems: 'baseline' as const,
+        marginBottom: 8,
+    },
+    rhythmScoreLabel: {
+        fontSize: 13,
+        color: '#666',
+        marginRight: 8,
+    },
+    rhythmScoreValue: {
+        fontSize: 32,
+        fontWeight: 'bold' as const,
+        color: '#3F51B5',
+    },
+    rhythmScoreUnit: {
+        fontSize: 14,
+        color: '#999',
+        marginLeft: 2,
+    },
+    patternBox: {
+        backgroundColor: '#FFF8E1',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 12,
+    },
+    patternTitle: {
+        fontSize: 15,
+        fontWeight: 'bold' as const,
+        color: '#E65100',
+        marginBottom: 8,
+    },
+    patternItem: {
+        flexDirection: 'row' as const,
+        alignItems: 'flex-start' as const,
+        gap: 8,
+        marginBottom: 6,
+    },
+    patternText: {
+        flex: 1,
+        fontSize: 14,
+        color: '#555',
+        lineHeight: 20,
+    },
+    growthBox: {
+        backgroundColor: '#E8F5E9',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 12,
+    },
+    growthTitle: {
+        fontSize: 15,
+        fontWeight: 'bold' as const,
+        color: '#2E7D32',
+        marginBottom: 8,
+    },
+    growthText: {
+        fontSize: 14,
+        color: '#333',
+        lineHeight: 22,
+    },
+    milestoneList: {
+        marginTop: 12,
+        gap: 8,
+    },
+    milestoneItem: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        gap: 8,
+    },
+    milestoneText: {
+        fontSize: 14,
+        fontWeight: '600' as const,
+        color: '#2E7D32',
+    },
+    goalsBox: {
+        backgroundColor: '#E3F2FD',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 12,
+    },
+    goalsTitle: {
+        fontSize: 15,
+        fontWeight: 'bold' as const,
+        color: '#1565C0',
+        marginBottom: 12,
+    },
+    goalItem: {
+        flexDirection: 'row' as const,
+        alignItems: 'flex-start' as const,
+        gap: 10,
+        marginBottom: 10,
+    },
+    goalNumber: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#1565C0',
+        justifyContent: 'center' as const,
+        alignItems: 'center' as const,
+    },
+    goalNumberText: {
+        color: '#fff',
+        fontSize: 13,
+        fontWeight: 'bold' as const,
+    },
+    goalText: {
+        flex: 1,
+        fontSize: 14,
+        color: '#333',
+        lineHeight: 20,
+    },
+    alertBox: {
+        flexDirection: 'row' as const,
+        backgroundColor: '#FFEBEE',
+        padding: 16,
+        borderRadius: 12,
+        alignItems: 'center' as const,
+        gap: 12,
+        marginBottom: 12,
+    },
+    alertText: {
+        flex: 1,
+        fontSize: 14,
+        color: '#D32F2F',
+        lineHeight: 20,
     },
 });

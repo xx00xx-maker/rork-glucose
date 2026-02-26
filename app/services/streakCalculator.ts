@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const STREAK_STORAGE_KEY = 'streak_data';
 const MEAL_COUNT_KEY = 'daily_meal_counts';
+const CUMULATIVE_MEALS_KEY = 'cumulative_total_meals';
 
 interface StreakData {
   steps: number;
@@ -112,12 +113,12 @@ export async function loadStreakData(): Promise<StreakData> {
 /**
  * Increment meal count for today
  */
-export async function incrementMealCount(): Promise<number> {
-  const today = getLocalDateStr(new Date());
+export async function incrementMealCount(dateStr?: string): Promise<number> {
+  const targetDate = dateStr || getLocalDateStr(new Date());
   const counts = await loadMealCounts();
-  counts[today] = (counts[today] || 0) + 1;
+  counts[targetDate] = (counts[targetDate] || 0) + 1;
 
-  // Keep only last 90 days to prevent unlimited growth
+  // Keep only last 90 days to prevent unlimited growth (for streak calculation)
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 90);
   const cutoffStr = getLocalDateStr(cutoff);
@@ -129,7 +130,31 @@ export async function incrementMealCount(): Promise<number> {
   }
 
   await AsyncStorage.setItem(MEAL_COUNT_KEY, JSON.stringify(cleaned));
-  return cleaned[today];
+
+  // Increment persistent cumulative counter (never cleaned up)
+  const cumTotal = await loadCumulativeMeals();
+  await AsyncStorage.setItem(CUMULATIVE_MEALS_KEY, String(cumTotal + 1));
+
+  return cleaned[targetDate] || 0;
+}
+
+/**
+ * Decrement meal count for a specific date (minimum 0)
+ * Returns the new total meal count across all dates
+ */
+export async function decrementMealCount(dateStr: string): Promise<{ dateCount: number; totalCount: number }> {
+  const counts = await loadMealCounts();
+  const current = counts[dateStr] || 0;
+  counts[dateStr] = Math.max(0, current - 1);
+
+  await AsyncStorage.setItem(MEAL_COUNT_KEY, JSON.stringify(counts));
+
+  // Decrement persistent cumulative counter
+  const cumTotal = await loadCumulativeMeals();
+  const newCumTotal = Math.max(0, cumTotal - 1);
+  await AsyncStorage.setItem(CUMULATIVE_MEALS_KEY, String(newCumTotal));
+
+  return { dateCount: counts[dateStr], totalCount: newCumTotal };
 }
 
 /**
@@ -151,6 +176,18 @@ export async function loadMealCounts(): Promise<DailyMealCounts> {
     console.warn('[MealCounts] Failed to load:', e);
   }
   return {};
+}
+
+/**
+ * Load persistent cumulative meal count (all-time, never cleaned up)
+ */
+export async function loadCumulativeMeals(): Promise<number> {
+  try {
+    const stored = await AsyncStorage.getItem(CUMULATIVE_MEALS_KEY);
+    return stored ? parseInt(stored, 10) : 0;
+  } catch {
+    return 0;
+  }
 }
 
 const CUMULATIVE_STEPS_KEY = 'cumulative_total_steps';

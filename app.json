@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "app.rork.ketogardian",
-      "buildNumber": "2",
+      "buildNumber": "4",
       "infoPlist": {
         "NSHealthShareUsageDescription": "レポート生成のために血糖値と歩数データを利用します。",
         "NSHealthUpdateUsageDescription": "データ分析のためにHealthKitへアクセスします。",
